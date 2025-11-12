@@ -16,44 +16,64 @@ export default function EmployeeJoin() {
   const [hasJoined, setHasJoined] = useState(false);
   const [roomData, setRoomData] = useState(null);
   const [currentSession, setCurrentSession] = useState(null);
-  const [errorDetails, setErrorDetails] = useState(null);
+  const [debugInfo, setDebugInfo] = useState([]);
+
+  const addDebug = (message) => {
+    console.log(message);
+    setDebugInfo(prev => [...prev, `${new Date().toLocaleTimeString()}: ${message}`]);
+  };
+
+  useEffect(() => {
+    addDebug(`Page loaded with ID: ${interviewId}`);
+  }, []);
 
   const { data: interview, isLoading, error: loadError } = useQuery({
     queryKey: ['interview', interviewId],
     queryFn: async () => {
+      addDebug('Starting to fetch interview...');
+      
+      if (!interviewId) {
+        throw new Error('No interview ID provided');
+      }
+
       try {
-        console.log('Fetching interview with ID:', interviewId);
-        const response = await base44.functions.invoke('getPublicInterview', { 
-          interviewId 
-        });
-        console.log('Interview loaded successfully:', response.data);
+        addDebug(`Calling getPublicInterview with ID: ${interviewId}`);
+        
+        const response = await Promise.race([
+          base44.functions.invoke('getPublicInterview', { interviewId }),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Request timeout after 10 seconds')), 10000)
+          )
+        ]);
+        
+        addDebug('Response received successfully');
+        addDebug(`Interview data: ${JSON.stringify(response.data)}`);
+        
         return response.data;
       } catch (error) {
-        console.error('ERROR CAUGHT:', error);
-        const details = {
-          message: error.message,
-          status: error.response?.status,
-          data: error.response?.data,
-          fullError: JSON.stringify(error, null, 2)
-        };
-        console.error('Full error details:', details);
-        setErrorDetails(details);
+        addDebug(`ERROR: ${error.message}`);
+        addDebug(`Error details: ${JSON.stringify(error.response?.data || error)}`);
         throw error;
       }
     },
     enabled: !!interviewId,
     retry: false,
     refetchOnWindowFocus: false,
-    refetchOnMount: false
+    refetchOnMount: false,
+    staleTime: 0
   });
 
   const joinMutation = useMutation({
     mutationFn: async () => {
+      addDebug('Join button clicked - checking authentication...');
+      
       // Check authentication
       let user;
       try {
         user = await base44.auth.me();
+        addDebug(`User authenticated: ${user.email}`);
       } catch (error) {
+        addDebug('User not authenticated - redirecting to login');
         // User not logged in - redirect to login with return URL
         const returnUrl = window.location.href;
         base44.auth.redirectToLogin(returnUrl);
@@ -68,9 +88,12 @@ export default function EmployeeJoin() {
       // Find or create session
       let session;
       if (sessionId) {
+        addDebug(`Looking for existing session: ${sessionId}`);
         const sessions = await base44.entities.InterviewSession.filter({ id: sessionId });
         session = sessions[0];
+        addDebug(`Session found: ${session ? 'yes' : 'no'}`);
       } else {
+        addDebug('Looking for session by interview and email');
         const sessions = await base44.entities.InterviewSession.filter({ 
           interview_id: interviewId,
           employee_email: user.email
@@ -79,15 +102,18 @@ export default function EmployeeJoin() {
       }
       
       if (!session) {
+        addDebug('Creating new session...');
         session = await base44.entities.InterviewSession.create({
           interview_id: interviewId,
           employee_email: user.email,
           employee_name: interview?.is_anonymous ? null : user.full_name,
           session_status: 'Pending'
         });
+        addDebug(`Session created: ${session.id}`);
       }
 
       // Create LiveKit room and get tokens
+      addDebug('Creating LiveKit room...');
       const response = await base44.functions.invoke('createInterviewRoom', {
         interviewId,
         sessionId: session.id,
@@ -95,6 +121,7 @@ export default function EmployeeJoin() {
         ttl: `${interview?.duration_minutes || 5}m`
       });
 
+      addDebug('LiveKit room created successfully');
       return { session, roomData: response.data };
     },
     onSuccess: ({ session, roomData }) => {
@@ -108,14 +135,12 @@ export default function EmployeeJoin() {
   const handleSessionEnd = async (sessionData) => {
     if (!currentSession) return;
 
-    // Update session with results
     await base44.entities.InterviewSession.update(currentSession.id, {
       session_status: 'Completed',
       completed_at: new Date().toISOString(),
       duration_seconds: sessionData.duration || 0,
       transcript: JSON.stringify(sessionData.transcript || []),
       sentiment_score: sessionData.sentiment_score || 0,
-      // These would come from real analysis
       key_themes: ['Work-Life Balance', 'Team Collaboration'],
       summary: 'Employee expressed positive sentiment about recent improvements in team collaboration.',
       recommended_actions: ['Continue current team practices', 'Monitor workload levels']
@@ -126,11 +151,43 @@ export default function EmployeeJoin() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center">
-        <div className="animate-pulse text-center">
-          <div className="w-16 h-16 mx-auto mb-4 bg-purple-200 rounded-full" />
-          <p className="text-gray-600">Loading interview...</p>
-        </div>
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center p-6">
+        <Card className="max-w-2xl w-full p-8">
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 mx-auto mb-4 bg-purple-200 rounded-full animate-pulse flex items-center justify-center">
+              <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+            </div>
+            <p className="text-gray-900 font-semibold text-lg mb-2">Loading interview...</p>
+            <p className="text-gray-600 text-sm">Interview ID: {interviewId}</p>
+          </div>
+          
+          {/* Debug Panel */}
+          <div className="bg-gray-50 rounded-lg p-4 text-left border-2 border-gray-200">
+            <p className="text-xs font-semibold text-gray-700 mb-2">🔍 Debug Log:</p>
+            <div className="font-mono text-xs text-gray-600 space-y-1 max-h-48 overflow-auto">
+              {debugInfo.length === 0 ? (
+                <p className="text-gray-400">Waiting for logs...</p>
+              ) : (
+                debugInfo.map((log, idx) => (
+                  <div key={idx} className="border-b border-gray-200 pb-1">{log}</div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 text-center">
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => {
+                addDebug('Manual reload triggered');
+                window.location.reload();
+              }}
+            >
+              Taking too long? Reload
+            </Button>
+          </div>
+        </Card>
       </div>
     );
   }
@@ -152,32 +209,24 @@ export default function EmployeeJoin() {
               </div>
             </div>
 
-            {errorDetails && (
+            {loadError && (
               <div className="bg-red-50 p-4 rounded-lg text-left border-2 border-red-200">
-                <p className="text-sm font-semibold text-red-700 mb-2">❌ Error Details:</p>
-                <div className="font-mono text-xs text-red-800 space-y-1 max-h-64 overflow-auto">
-                  {errorDetails.message && <p>Message: {errorDetails.message}</p>}
-                  {errorDetails.status && <p>Status: {errorDetails.status}</p>}
-                  {errorDetails.data && (
-                    <div className="mt-2 p-2 bg-red-100 rounded">
-                      <p className="mb-1">Response:</p>
-                      <pre className="whitespace-pre-wrap break-all">
-                        {JSON.stringify(errorDetails.data, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {loadError && !errorDetails && (
-              <div className="bg-red-50 p-4 rounded-lg text-left">
                 <p className="text-sm font-semibold text-red-700 mb-2">❌ Error:</p>
-                <p className="font-mono text-xs text-red-800">
+                <p className="font-mono text-xs text-red-800 whitespace-pre-wrap break-all">
                   {loadError.message || 'Unknown error occurred'}
                 </p>
               </div>
             )}
+
+            {/* Debug Log */}
+            <div className="bg-blue-50 p-4 rounded-lg text-left border-2 border-blue-200">
+              <p className="text-sm font-semibold text-blue-700 mb-2">🔍 Debug Log:</p>
+              <div className="font-mono text-xs text-blue-800 space-y-1 max-h-48 overflow-auto">
+                {debugInfo.map((log, idx) => (
+                  <div key={idx} className="border-b border-blue-200 pb-1">{log}</div>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="flex gap-3 justify-center">
@@ -186,16 +235,6 @@ export default function EmployeeJoin() {
               className="bg-purple-600 hover:bg-purple-700"
             >
               Reload Page
-            </Button>
-            <Button 
-              variant="outline"
-              onClick={() => {
-                console.log('Full error object:', loadError);
-                console.log('Error details:', errorDetails);
-                alert('Error details logged to console. Press F12 to view.');
-              }}
-            >
-              Show Console Logs
             </Button>
           </div>
         </Card>
@@ -228,13 +267,11 @@ export default function EmployeeJoin() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 p-6">
         <div className="max-w-4xl mx-auto">
-          {/* Header */}
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">{interview.title}</h1>
             <p className="text-gray-600">Voice Interview Session</p>
           </div>
 
-          {/* Voice Interview Room */}
           <VoiceInterviewRoom
             token={roomData.participant.token}
             serverUrl={roomData.serverUrl}
@@ -243,7 +280,6 @@ export default function EmployeeJoin() {
             onSessionEnd={handleSessionEnd}
           />
 
-          {/* Session Info */}
           <Card className="mt-6 p-4 border-0 bg-white/80 backdrop-blur">
             <div className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-4">
@@ -267,24 +303,20 @@ export default function EmployeeJoin() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center p-6">
       <Card className="max-w-2xl w-full p-12 text-center border-0 shadow-xl bg-white/90 backdrop-blur">
-        {/* Icon */}
         <div className="inline-flex items-center justify-center w-20 h-20 rounded-full 
                         bg-gradient-to-br from-purple-500 to-pink-500 mb-6 animate-pulse">
           <Mic className="w-10 h-10 text-white" />
         </div>
 
-        {/* Title */}
         <h1 className="text-4xl font-bold text-gray-900 mb-3">Voice Check-In</h1>
         <p className="text-xl text-gray-600 mb-8">{interview.title}</p>
 
-        {/* Welcome Message */}
         {interview.welcome_message && (
           <div className="bg-purple-50 rounded-xl p-6 mb-8 text-left">
             <p className="text-gray-700">{interview.welcome_message}</p>
           </div>
         )}
 
-        {/* Info Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <div className="p-4 bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl">
             <Clock className="w-6 h-6 mx-auto text-purple-600 mb-2" />
@@ -300,7 +332,6 @@ export default function EmployeeJoin() {
           </div>
         </div>
 
-        {/* Description */}
         <div className="mb-8">
           <h3 className="font-semibold text-gray-900 mb-3">About this conversation:</h3>
           <p className="text-gray-700 leading-relaxed">
@@ -310,7 +341,6 @@ export default function EmployeeJoin() {
           </p>
         </div>
 
-        {/* CTA */}
         <Button
           size="lg"
           onClick={() => {
@@ -334,7 +364,6 @@ export default function EmployeeJoin() {
           )}
         </Button>
 
-        {/* Privacy Notice */}
         <p className="text-xs text-gray-500 mt-6">
           {interview.is_anonymous 
             ? 'Your identity remains private. Only aggregate insights are shared.' 
