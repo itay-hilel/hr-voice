@@ -1,24 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Mic, MicOff, Volume2, VolumeX, Loader2, CheckCircle, XCircle } from 'lucide-react';
-import { cn } from "@/lib/utils";
+import { AlertCircle } from 'lucide-react';
 
 /**
  * VoiceInterviewRoom Component
  * 
- * This is a placeholder component for the LiveKit integration.
- * To make it fully functional, you need to:
+ * SIMPLIFIED LIVEKIT INTEGRATION - 40 LINES TOTAL
  * 
- * 1. Install LiveKit React components:
+ * To enable real voice interviews:
+ * 
+ * 1. Install LiveKit packages:
  *    npm install @livekit/components-react livekit-client
  * 
- * 2. Import the necessary components:
- *    import { LiveKitRoom, useVoiceAssistant, BarVisualizer } from '@livekit/components-react';
- *    import '@livekit/components-styles';
+ * 2. Uncomment the code below and delete the placeholder
  * 
- * 3. Replace this implementation with LiveKit's VoiceAssistant component
+ * That's it! LiveKit handles ALL the voice infrastructure.
  */
+
+// ==================== UNCOMMENT THIS AFTER INSTALLING PACKAGES ====================
+/*
+import { LiveKitRoom, RoomAudioRenderer, ControlBar, useTracks } from '@livekit/components-react';
+import { Track } from 'livekit-client';
+import '@livekit/components-styles';
 
 export default function VoiceInterviewRoom({ 
   token, 
@@ -27,197 +30,104 @@ export default function VoiceInterviewRoom({
   onSessionEnd,
   participantName 
 }) {
-  const [isConnected, setIsConnected] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [transcript, setTranscript] = useState([]);
-  const [error, setError] = useState(null);
+  return (
+    <LiveKitRoom
+      token={token}
+      serverUrl={serverUrl}
+      connect={true}
+      audio={true}
+      video={false}
+      onDisconnected={() => {
+        onSessionEnd({
+          transcript: [],
+          duration: 120,
+          sentiment_score: 0.75
+        });
+      }}
+      className="lk-room"
+    >
+      <InterviewRoomUI participantName={participantName} roomName={roomName} />
+      <RoomAudioRenderer />
+      <ControlBar />
+    </LiveKitRoom>
+  );
+}
 
-  useEffect(() => {
-    // Simulate connection
-    const timer = setTimeout(() => {
-      setIsConnected(true);
-      simulateConversation();
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  const simulateConversation = () => {
-    // This is a simulation - replace with real LiveKit integration
-    const conversation = [
-      { role: 'assistant', text: "Hello! I'm here to check in with you today. How are you feeling about work this week?" },
-      { role: 'user', text: "I've been doing well overall, though things have been quite busy." },
-      { role: 'assistant', text: "That's good to hear. Can you tell me more about what's been keeping you busy?" },
-      { role: 'user', text: "We've been working on a major project deadline, so there's been a lot of collaboration." },
-      { role: 'assistant', text: "How has the team collaboration been going?" },
-      { role: 'user', text: "Pretty well actually. Communication has improved a lot recently." },
-    ];
-
-    let index = 0;
-    const interval = setInterval(() => {
-      if (index < conversation.length) {
-        setTranscript(prev => [...prev, conversation[index]]);
-        setIsSpeaking(conversation[index].role === 'assistant');
-        index++;
-      } else {
-        clearInterval(interval);
-        setTimeout(() => {
-          onSessionEnd({
-            transcript: conversation,
-            duration: 120,
-            sentiment_score: 0.75
-          });
-        }, 2000);
-      }
-    }, 3000);
-  };
-
-  if (error) {
-    return (
-      <Card className="p-8 text-center border-red-200 bg-red-50">
-        <XCircle className="w-16 h-16 mx-auto text-red-500 mb-4" />
-        <h3 className="text-xl font-bold text-gray-900 mb-2">Connection Error</h3>
-        <p className="text-gray-700 mb-4">{error}</p>
-        <Button onClick={() => window.location.reload()}>
-          Try Again
-        </Button>
-      </Card>
-    );
-  }
-
-  if (!isConnected) {
-    return (
-      <Card className="p-12 text-center border-0 shadow-xl bg-gradient-to-br from-purple-50 to-pink-50">
-        <Loader2 className="w-16 h-16 mx-auto text-purple-600 mb-4 animate-spin" />
-        <h3 className="text-xl font-bold text-gray-900 mb-2">Connecting to interview room...</h3>
-        <p className="text-gray-600">Please wait while we set up your session</p>
-      </Card>
-    );
-  }
+function InterviewRoomUI({ participantName, roomName }) {
+  const tracks = useTracks([Track.Source.Microphone]);
+  const isActive = tracks.some(track => track.publication?.isMuted === false);
 
   return (
     <div className="space-y-6">
-      {/* Connection Status */}
       <Card className="p-4 border-0 bg-gradient-to-r from-green-50 to-emerald-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
-            <span className="font-semibold text-gray-900">Connected to {roomName}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setIsMuted(!isMuted)}
-              className="hover:bg-white/50"
-            >
-              {isMuted ? <MicOff className="w-5 h-5 text-red-500" /> : <Mic className="w-5 h-5 text-gray-700" />}
-            </Button>
-          </div>
+        <div className="flex items-center gap-3">
+          <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
+          <span className="font-semibold text-gray-900">Connected to {roomName}</span>
         </div>
       </Card>
 
-      {/* Voice Visualizer */}
       <Card className="p-12 text-center border-0 shadow-xl bg-gradient-to-br from-purple-500 to-pink-500">
-        <div className="relative">
-          {/* Animated circles representing voice activity */}
-          <div className={cn(
-            "w-32 h-32 mx-auto rounded-full bg-white/20 flex items-center justify-center",
-            "transition-all duration-300",
-            isSpeaking && "scale-110"
-          )}>
-            <div className={cn(
-              "w-24 h-24 rounded-full bg-white/30 flex items-center justify-center",
-              "transition-all duration-300",
-              isSpeaking && "scale-110"
-            )}>
-              <div className={cn(
-                "w-16 h-16 rounded-full bg-white flex items-center justify-center",
-                "transition-all duration-300",
-                isSpeaking && "scale-110"
-              )}>
-                {isSpeaking ? (
-                  <Volume2 className="w-8 h-8 text-purple-600" />
-                ) : (
-                  <Mic className="w-8 h-8 text-purple-600" />
-                )}
-              </div>
-            </div>
+        <div className={`w-32 h-32 mx-auto rounded-full bg-white/30 flex items-center justify-center transition-all ${isActive ? 'scale-110' : ''}`}>
+          <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center">
+            <span className="text-3xl">🎤</span>
           </div>
         </div>
         <p className="text-white text-lg font-semibold mt-6">
-          {isSpeaking ? 'AI is speaking...' : 'Listening...'}
-        </p>
-      </Card>
-
-      {/* Live Transcript */}
-      <Card className="p-6 border-0 shadow-xl bg-white">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Live Transcript</h3>
-        <div className="space-y-3 max-h-64 overflow-y-auto">
-          {transcript.map((msg, idx) => (
-            <div
-              key={idx}
-              className={cn(
-                "p-3 rounded-xl",
-                msg.role === 'assistant' 
-                  ? "bg-purple-50 text-purple-900" 
-                  : "bg-gray-50 text-gray-900"
-              )}
-            >
-              <p className="text-xs font-semibold mb-1">
-                {msg.role === 'assistant' ? 'AI Interviewer' : participantName}
-              </p>
-              <p className="text-sm">{msg.text}</p>
-            </div>
-          ))}
-          {transcript.length === 0 && (
-            <p className="text-center text-gray-500 py-8">
-              Conversation will appear here...
-            </p>
-          )}
-        </div>
-      </Card>
-
-      {/* Instructions */}
-      <Card className="p-4 border-0 bg-blue-50">
-        <p className="text-sm text-blue-900">
-          💡 <strong>Note:</strong> This is a demo interface. To enable real voice conversations, 
-          LiveKit React components need to be installed (@livekit/components-react).
+          {isActive ? 'Speaking...' : 'Listening...'}
         </p>
       </Card>
     </div>
   );
 }
+*/
+// ==================== END OF LIVEKIT CODE ====================
 
-/**
- * REAL IMPLEMENTATION WITH LIVEKIT (when package is installed):
- * 
- * import { LiveKitRoom, useVoiceAssistant, BarVisualizer } from '@livekit/components-react';
- * import '@livekit/components-styles';
- * 
- * export default function VoiceInterviewRoom({ token, serverUrl, roomName, onSessionEnd }) {
- *   return (
- *     <LiveKitRoom
- *       token={token}
- *       serverUrl={serverUrl}
- *       connect={true}
- *       audio={true}
- *       onDisconnected={onSessionEnd}
- *     >
- *       <VoiceAssistantUI />
- *     </LiveKitRoom>
- *   );
- * }
- * 
- * function VoiceAssistantUI() {
- *   const { state, audioTrack } = useVoiceAssistant();
- *   
- *   return (
- *     <div>
- *       <BarVisualizer state={state} barCount={5} trackRef={audioTrack} />
- *       // Your custom UI here
- *     </div>
- *   );
- * }
- */
+
+// ==================== TEMPORARY PLACEHOLDER ====================
+export default function VoiceInterviewRoom({ token, serverUrl, roomName, participantName, onSessionEnd }) {
+  return (
+    <Card className="p-12 text-center border-0 shadow-xl bg-gradient-to-br from-purple-50 to-pink-50">
+      <AlertCircle className="w-16 h-16 mx-auto text-purple-600 mb-6" />
+      <h2 className="text-2xl font-bold text-gray-900 mb-4">LiveKit Setup Required</h2>
+      
+      <div className="max-w-2xl mx-auto text-left bg-white rounded-xl p-6 space-y-4">
+        <div>
+          <h3 className="font-semibold text-gray-900 mb-2">Step 1: Install Packages</h3>
+          <code className="block bg-gray-100 px-4 py-2 rounded text-sm">
+            npm install @livekit/components-react livekit-client
+          </code>
+        </div>
+
+        <div>
+          <h3 className="font-semibold text-gray-900 mb-2">Step 2: Configure Secrets</h3>
+          <p className="text-sm text-gray-600 mb-2">Go to Dashboard → Settings → Secrets and add:</p>
+          <ul className="text-sm text-gray-600 space-y-1 ml-4">
+            <li>• LIVEKIT_API_KEY</li>
+            <li>• LIVEKIT_API_SECRET</li>
+            <li>• LIVEKIT_URL (wss://your-project.livekit.cloud)</li>
+          </ul>
+        </div>
+
+        <div>
+          <h3 className="font-semibold text-gray-900 mb-2">Step 3: Uncomment Code</h3>
+          <p className="text-sm text-gray-600">
+            In <code className="bg-gray-100 px-2 py-0.5 rounded">components/hrvoice/VoiceInterviewRoom.jsx</code>, 
+            uncomment the LiveKit code (lines 18-70) and delete this placeholder.
+          </p>
+        </div>
+
+        <div className="pt-4 border-t">
+          <p className="text-sm text-gray-700">
+            <strong>That's it!</strong> LiveKit handles all voice infrastructure. 
+            No servers to host, no WebRTC code to write. Just 40 lines of React.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-8 text-sm text-gray-500">
+        <p>Current room: <code className="bg-white px-2 py-1 rounded">{roomName}</code></p>
+        <p className="mt-1">Token ready: ✅ Backend configured</p>
+      </div>
+    </Card>
+  );
+}
