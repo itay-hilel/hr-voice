@@ -21,12 +21,15 @@ export default function EmployeeJoin() {
     queryKey: ['interview', interviewId],
     queryFn: async () => {
       try {
+        console.log('Fetching interview with ID:', interviewId);
         const response = await base44.functions.invoke('getPublicInterview', { 
           interviewId 
         });
+        console.log('Interview loaded successfully:', response.data);
         return response.data;
       } catch (error) {
         console.error('Error loading interview:', error);
+        console.error('Error details:', error.response?.data || error.message);
         throw error;
       }
     },
@@ -130,19 +133,24 @@ export default function EmployeeJoin() {
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Interview Not Found</h2>
           <p className="text-gray-600 mb-4">
             {loadError 
-              ? 'Unable to load interview. You may need to log in first.' 
+              ? `Error: ${loadError.message || 'Unable to load interview'}` 
               : 'This interview link may be invalid or expired.'}
           </p>
           {loadError && (
-            <Button 
-              onClick={() => {
-                const returnUrl = window.location.href;
-                base44.auth.redirectToLogin(returnUrl);
-              }}
-              className="bg-purple-600 hover:bg-purple-700"
-            >
-              Log In
-            </Button>
+            <div className="space-y-4">
+              <div className="text-xs text-left bg-red-50 p-3 rounded-lg">
+                <p className="font-mono text-red-800 break-all">
+                  Interview ID: {interviewId}<br/>
+                  Error: {JSON.stringify(loadError.response?.data || loadError.message)}
+                </p>
+              </div>
+              <Button 
+                onClick={() => window.location.reload()}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                Try Again
+              </Button>
+            </div>
           )}
         </Card>
       </div>
