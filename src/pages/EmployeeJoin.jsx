@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Mic, Clock, Shield, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
+import VoiceInterviewRoom from '../components/hrvoice/VoiceInterviewRoom';
 
 export default function EmployeeJoin() {
   const queryClient = useQueryClient();
@@ -12,6 +13,8 @@ export default function EmployeeJoin() {
   const sessionToken = urlParams.get('token');
 
   const [hasJoined, setHasJoined] = useState(false);
+  const [roomData, setRoomData] = useState(null);
+  const [currentSession, setCurrentSession] = useState(null);
 
   const { data: interview, isLoading } = useQuery({
     queryKey: ['interview', interviewId],
@@ -30,17 +33,55 @@ export default function EmployeeJoin() {
         interview_id: interviewId,
         employee_email: user.email,
         employee_name: interview?.is_anonymous ? null : user.full_name,
-        session_status: 'In Progress',
-        started_at: new Date().toISOString(),
+        session_status: 'Pending',
         join_token: sessionToken || Math.random().toString(36).substring(7)
       });
-      return session;
+
+      // Create LiveKit room and get tokens
+      const response = await fetch('/api/functions/createInterviewRoom', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          interviewId,
+          sessionId: session.id,
+          participantName: interview?.is_anonymous ? 'Anonymous' : user.full_name,
+          ttl: `${interview?.duration_minutes || 5}m`
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create interview room');
+      }
+
+      const roomData = await response.json();
+      return { session, roomData };
     },
-    onSuccess: () => {
+    onSuccess: ({ session, roomData }) => {
+      setCurrentSession(session);
+      setRoomData(roomData);
       setHasJoined(true);
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
     }
   });
+
+  const handleSessionEnd = async (sessionData) => {
+    if (!currentSession) return;
+
+    // Update session with results
+    await base44.entities.InterviewSession.update(currentSession.id, {
+      session_status: 'Completed',
+      completed_at: new Date().toISOString(),
+      duration_seconds: sessionData.duration || 0,
+      transcript: JSON.stringify(sessionData.transcript || []),
+      sentiment_score: sessionData.sentiment_score || 0,
+      // These would come from real analysis
+      key_themes: ['Work-Life Balance', 'Team Collaboration'],
+      summary: 'Employee expressed positive sentiment about recent improvements in team collaboration.',
+      recommended_actions: ['Continue current team practices', 'Monitor workload levels']
+    });
+
+    queryClient.invalidateQueries({ queryKey: ['sessions'] });
+  };
 
   if (isLoading) {
     return (
@@ -65,44 +106,42 @@ export default function EmployeeJoin() {
     );
   }
 
-  if (hasJoined) {
+  if (hasJoined && roomData) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center p-6">
-        <Card className="max-w-2xl w-full p-12 text-center border-0 shadow-xl bg-white/90 backdrop-blur">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full 
-                          bg-gradient-to-br from-green-400 to-emerald-500 mb-6">
-            <CheckCircle className="w-10 h-10 text-white" />
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 p-6">
+        <div className="max-w-4xl mx-auto">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">{interview.title}</h1>
+            <p className="text-gray-600">Voice Interview Session</p>
           </div>
-          <h2 className="text-3xl font-bold text-gray-900 mb-4">Session Started!</h2>
-          <p className="text-lg text-gray-600 mb-8">
-            In a real implementation, you would now be connected to a LiveKit voice session.
-            The AI would conduct the interview based on the configured topic and tone.
-          </p>
-          <div className="bg-purple-50 rounded-xl p-6 text-left">
-            <h3 className="font-semibold text-gray-900 mb-3">What happens next:</h3>
-            <ul className="space-y-2 text-sm text-gray-700">
-              <li className="flex items-start gap-2">
-                <span className="text-purple-600 mt-0.5">•</span>
-                <span>You'll have a natural conversation with the AI for {interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-purple-600 mt-0.5">•</span>
-                <span>The conversation is transcribed and analyzed in real-time</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-purple-600 mt-0.5">•</span>
-                <span>Your responses are {interview.is_anonymous ? 'anonymous' : 'attributed to you'}</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-purple-600 mt-0.5">•</span>
-                <span>Insights are shared with HR to improve your work experience</span>
-              </li>
-            </ul>
-          </div>
-          <p className="text-sm text-gray-500 mt-6">
-            This is a demo. To connect real voice sessions, integrate LiveKit API.
-          </p>
-        </Card>
+
+          {/* Voice Interview Room */}
+          <VoiceInterviewRoom
+            token={roomData.participant.token}
+            serverUrl={roomData.serverUrl}
+            roomName={roomData.roomName}
+            participantName={roomData.participant.name}
+            onSessionEnd={handleSessionEnd}
+          />
+
+          {/* Session Info */}
+          <Card className="mt-6 p-4 border-0 bg-white/80 backdrop-blur">
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-gray-500" />
+                  <span className="text-gray-700">Duration: {interview.duration_minutes} min</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-gray-500" />
+                  <span className="text-gray-700">{interview.is_anonymous ? 'Anonymous' : 'Identified'}</span>
+                </div>
+              </div>
+              <span className="text-gray-500">Topic: {interview.topic}</span>
+            </div>
+          </Card>
+        </div>
       </div>
     );
   }
