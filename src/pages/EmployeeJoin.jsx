@@ -3,7 +3,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Mic, Clock, Shield, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
+import { Mic, Clock, Shield, Sparkles, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import VoiceInterviewRoom from '../components/hrvoice/VoiceInterviewRoom';
 
 export default function EmployeeJoin() {
@@ -17,28 +17,48 @@ export default function EmployeeJoin() {
   const [roomData, setRoomData] = useState(null);
   const [currentSession, setCurrentSession] = useState(null);
 
-  const { data: interview, isLoading } = useQuery({
+  const { data: interview, isLoading, error: loadError } = useQuery({
     queryKey: ['interview', interviewId],
     queryFn: async () => {
-      const interviews = await base44.entities.VoiceInterview.filter({ id: interviewId });
-      return interviews[0];
+      try {
+        const interviews = await base44.entities.VoiceInterview.filter({ id: interviewId });
+        return interviews[0];
+      } catch (error) {
+        console.error('Error loading interview:', error);
+        throw error;
+      }
     },
-    enabled: !!interviewId
+    enabled: !!interviewId,
+    retry: 1
   });
 
   const joinMutation = useMutation({
     mutationFn: async () => {
-      const user = await base44.auth.me();
+      // Check authentication
+      let user;
+      try {
+        user = await base44.auth.me();
+      } catch (error) {
+        // User not logged in - redirect to login with return URL
+        const returnUrl = window.location.href;
+        base44.auth.redirectToLogin(returnUrl);
+        throw new Error('Authentication required');
+      }
+      
+      // Verify email matches if provided
+      if (employeeEmail && user.email !== employeeEmail) {
+        throw new Error('This interview link is for a different email address. Please log in with: ' + employeeEmail);
+      }
       
       // Find or create session
       let session;
       if (sessionId) {
         const sessions = await base44.entities.InterviewSession.filter({ id: sessionId });
         session = sessions[0];
-      } else if (employeeEmail) {
+      } else {
         const sessions = await base44.entities.InterviewSession.filter({ 
           interview_id: interviewId,
-          employee_email: employeeEmail
+          employee_email: user.email
         });
         session = sessions[0];
       }
@@ -103,19 +123,55 @@ export default function EmployeeJoin() {
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center">
         <div className="animate-pulse text-center">
           <div className="w-16 h-16 mx-auto mb-4 bg-purple-200 rounded-full" />
-          <p className="text-gray-600">Loading...</p>
+          <p className="text-gray-600">Loading interview...</p>
         </div>
       </div>
     );
   }
 
-  if (!interview) {
+  if (loadError || !interview) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center p-6">
         <Card className="max-w-md w-full p-8 text-center border-0 shadow-xl">
           <AlertCircle className="w-16 h-16 mx-auto text-red-500 mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Interview Not Found</h2>
-          <p className="text-gray-600">This interview link may be invalid or expired.</p>
+          <p className="text-gray-600 mb-4">
+            {loadError 
+              ? 'Unable to load interview. You may need to log in first.' 
+              : 'This interview link may be invalid or expired.'}
+          </p>
+          {loadError && (
+            <Button 
+              onClick={() => {
+                const returnUrl = window.location.href;
+                base44.auth.redirectToLogin(returnUrl);
+              }}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              Log In
+            </Button>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
+  // Show error if mutation failed
+  if (joinMutation.isError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center p-6">
+        <Card className="max-w-md w-full p-8 text-center border-0 shadow-xl">
+          <AlertCircle className="w-16 h-16 mx-auto text-red-500 mb-4" />
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Authentication Error</h2>
+          <p className="text-gray-600 mb-4">
+            {joinMutation.error?.message || 'Unable to start interview. Please try logging in.'}
+          </p>
+          <Button 
+            onClick={() => window.location.reload()}
+            className="bg-purple-600 hover:bg-purple-700"
+          >
+            Try Again
+          </Button>
         </Card>
       </div>
     );
@@ -210,11 +266,20 @@ export default function EmployeeJoin() {
         {/* CTA */}
         <Button
           size="lg"
-          onClick={() => joinMutation.mutate()}
+          onClick={() => {
+            if (!joinMutation.isPending) {
+              joinMutation.mutate();
+            }
+          }}
           disabled={joinMutation.isPending}
           className="w-full h-14 text-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
         >
-          {joinMutation.isPending ? 'Starting Session...' : (
+          {joinMutation.isPending ? (
+            <>
+              <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+              Starting Session...
+            </>
+          ) : (
             <>
               <Mic className="w-5 h-5 mr-2" />
               Start Voice Interview
