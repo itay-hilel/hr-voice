@@ -3,7 +3,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Mic, Clock, Shield, Sparkles, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Mic, Clock, Shield, Sparkles, AlertCircle, Loader2 } from 'lucide-react';
 import VoiceInterviewRoom from '../components/hrvoice/VoiceInterviewRoom';
 
 export default function EmployeeJoin() {
@@ -16,77 +16,38 @@ export default function EmployeeJoin() {
   const [hasJoined, setHasJoined] = useState(false);
   const [roomData, setRoomData] = useState(null);
   const [currentSession, setCurrentSession] = useState(null);
-  const [debugInfo, setDebugInfo] = useState([]);
-  const [testMode, setTestMode] = useState(false);
 
-  const addDebug = (message) => {
-    const timestamp = new Date().toLocaleTimeString();
-    console.log(`[${timestamp}] ${message}`);
-    setDebugInfo(prev => [...prev, `${timestamp}: ${message}`]);
-  };
-
-  useEffect(() => {
-    addDebug(`Page loaded`);
-    addDebug(`Interview ID: ${interviewId}`);
-    addDebug(`Employee Email: ${employeeEmail || 'not provided'}`);
-    addDebug(`Session ID: ${sessionId || 'not provided'}`);
-  }, []);
-
-  // SIMPLIFIED APPROACH - Try direct entity access with service role via backend
+  // Simplified approach - fetch interview directly with service role
   const { data: interview, isLoading, error: loadError } = useQuery({
-    queryKey: ['interview', interviewId],
+    queryKey: ['public-interview', interviewId],
     queryFn: async () => {
-      addDebug('Starting fetch...');
-      
       if (!interviewId) {
-        addDebug('ERROR: No interview ID');
-        throw new Error('No interview ID provided in URL');
+        throw new Error('No interview ID provided');
       }
 
-      try {
-        addDebug('Calling getPublicInterview function...');
-        
-        const response = await base44.functions.invoke('getPublicInterview', { 
-          interviewId 
-        });
-        
-        addDebug('Got response!');
-        addDebug(`Response status: ${response.status}`);
-        addDebug(`Response data: ${JSON.stringify(response.data)}`);
-        
-        if (!response.data) {
-          throw new Error('Function returned no data');
-        }
-        
-        return response.data;
-      } catch (error) {
-        addDebug(`CATCH ERROR: ${error.message}`);
-        
-        if (error.response) {
-          addDebug(`Error status: ${error.response.status}`);
-          addDebug(`Error data: ${JSON.stringify(error.response.data)}`);
-        }
-        
-        throw error;
+      // Fetch directly using service role
+      const interviews = await base44.asServiceRole.entities.VoiceInterview.filter({ 
+        id: interviewId 
+      });
+      
+      if (!interviews || interviews.length === 0) {
+        throw new Error('Interview not found');
       }
+
+      return interviews[0];
     },
-    enabled: !!interviewId && !testMode,
-    retry: false,
-    refetchOnWindowFocus: false,
-    staleTime: Infinity
+    enabled: !!interviewId,
+    retry: 1,
+    staleTime: 300000, // 5 minutes
   });
 
   const joinMutation = useMutation({
     mutationFn: async () => {
-      addDebug('Starting join process...');
-      
       // Check authentication
       let user;
       try {
         user = await base44.auth.me();
-        addDebug(`User authenticated: ${user.email}`);
       } catch (error) {
-        addDebug('User not authenticated - redirecting');
         const returnUrl = window.location.href;
         base44.auth.redirectToLogin(returnUrl);
         throw new Error('Authentication required');
@@ -100,13 +61,11 @@ export default function EmployeeJoin() {
       // Find or create session
       let session;
       if (sessionId) {
-        addDebug(`Looking for session: ${sessionId}`);
         const sessions = await base44.entities.InterviewSession.filter({ id: sessionId });
         session = sessions[0];
       }
       
       if (!session) {
-        addDebug('Creating new session...');
         session = await base44.entities.InterviewSession.create({
           interview_id: interviewId,
           employee_email: user.email,
@@ -116,7 +75,6 @@ export default function EmployeeJoin() {
       }
 
       // Create LiveKit room
-      addDebug('Creating LiveKit room...');
       const response = await base44.functions.invoke('createInterviewRoom', {
         interviewId,
         sessionId: session.id,
@@ -124,7 +82,6 @@ export default function EmployeeJoin() {
         ttl: `${interview?.duration_minutes || 5}m`
       });
 
-      addDebug('Room created successfully');
       return { session, roomData: response.data };
     },
     onSuccess: ({ session, roomData }) => {
@@ -136,6 +93,7 @@ export default function EmployeeJoin() {
 
   const handleSessionEnd = async (sessionData) => {
     if (!currentSession) return;
+    
     await base44.entities.InterviewSession.update(currentSession.id, {
       session_status: 'Completed',
       completed_at: new Date().toISOString(),
@@ -146,72 +104,19 @@ export default function EmployeeJoin() {
       summary: 'Employee expressed positive sentiment.',
       recommended_actions: ['Continue current practices']
     });
-  };
 
-  // Test mode to bypass function call
-  const handleTestMode = async () => {
-    addDebug('TEST MODE: Fetching directly with service role');
-    setTestMode(true);
-    try {
-      const interviews = await base44.asServiceRole.entities.VoiceInterview.filter({ id: interviewId });
-      addDebug(`Direct query result: ${JSON.stringify(interviews)}`);
-      if (interviews.length > 0) {
-        addDebug('SUCCESS: Interview found via direct query!');
-      } else {
-        addDebug('ERROR: Interview not found via direct query');
-      }
-    } catch (err) {
-      addDebug(`Direct query error: ${err.message}`);
-    }
+    queryClient.invalidateQueries({ queryKey: ['sessions'] });
   };
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center p-6">
-        <Card className="max-w-3xl w-full p-8">
-          <div className="text-center mb-6">
+        <Card className="max-w-2xl w-full p-8">
+          <div className="text-center">
             <div className="w-16 h-16 mx-auto mb-4 bg-purple-200 rounded-full animate-pulse flex items-center justify-center">
               <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
             </div>
-            <p className="text-gray-900 font-semibold text-lg mb-2">Loading interview...</p>
-            <p className="text-gray-600 text-sm mb-4">Interview ID: {interviewId}</p>
-          </div>
-          
-          {/* Debug Panel */}
-          <div className="bg-gray-900 rounded-lg p-4 text-left border-2 border-gray-700">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-green-400">🔍 Debug Console</p>
-              <Button 
-                size="sm" 
-                variant="outline"
-                onClick={handleTestMode}
-                className="h-6 text-xs"
-              >
-                Test Direct Query
-              </Button>
-            </div>
-            <div className="font-mono text-xs text-green-300 space-y-1 max-h-64 overflow-auto">
-              {debugInfo.length === 0 ? (
-                <p className="text-gray-500">Waiting for logs...</p>
-              ) : (
-                debugInfo.map((log, idx) => (
-                  <div key={idx} className="border-b border-gray-700 pb-1 leading-relaxed">
-                    {log}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="mt-4 text-center">
-            <p className="text-xs text-gray-500 mb-2">Stuck? Click reload after 10 seconds</p>
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={() => window.location.reload()}
-            >
-              Reload Page
-            </Button>
+            <p className="text-gray-900 font-semibold text-lg">Loading interview...</p>
           </div>
         </Card>
       </div>
@@ -221,54 +126,23 @@ export default function EmployeeJoin() {
   if (loadError || !interview) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center p-6">
-        <Card className="max-w-3xl w-full p-8">
+        <Card className="max-w-2xl w-full p-8 text-center border-0 shadow-xl">
           <AlertCircle className="w-16 h-16 mx-auto text-red-500 mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-4 text-center">Unable to Load Interview</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Unable to Load Interview</h2>
           
-          <div className="space-y-4 mb-6">
-            <div className="bg-gray-50 p-4 rounded-lg text-left">
-              <p className="text-sm font-semibold text-gray-700 mb-2">📋 URL Parameters:</p>
-              <div className="font-mono text-xs text-gray-600 space-y-1">
-                <p>Interview ID: <span className="text-purple-600 font-bold">{interviewId || 'MISSING'}</span></p>
-                <p>Email: <span className="text-purple-600">{employeeEmail || 'Not provided'}</span></p>
-                <p>Session: <span className="text-purple-600">{sessionId || 'Not provided'}</span></p>
-              </div>
-            </div>
-
-            {loadError && (
-              <div className="bg-red-50 p-4 rounded-lg text-left border-2 border-red-200">
-                <p className="text-sm font-semibold text-red-700 mb-2">❌ Error:</p>
-                <p className="font-mono text-xs text-red-800 whitespace-pre-wrap break-all">
-                  {loadError.message || 'Unknown error'}
-                </p>
-              </div>
-            )}
-
-            {/* Debug Log */}
-            <div className="bg-gray-900 rounded-lg p-4 text-left border-2 border-gray-700">
-              <p className="text-xs font-semibold text-green-400 mb-2">🔍 Debug Log:</p>
-              <div className="font-mono text-xs text-green-300 space-y-1 max-h-64 overflow-auto">
-                {debugInfo.map((log, idx) => (
-                  <div key={idx} className="border-b border-gray-700 pb-1">{log}</div>
-                ))}
-              </div>
-            </div>
+          <div className="bg-gray-50 p-4 rounded-lg mb-6">
+            <p className="text-sm text-gray-600">
+              {loadError?.message || 'Interview not found'}
+            </p>
+            <p className="text-xs text-gray-500 mt-2">Interview ID: {interviewId}</p>
           </div>
 
-          <div className="flex gap-3 justify-center">
-            <Button 
-              onClick={() => window.location.reload()}
-              className="bg-purple-600 hover:bg-purple-700"
-            >
-              Try Again
-            </Button>
-            <Button 
-              variant="outline"
-              onClick={handleTestMode}
-            >
-              Test Direct Access
-            </Button>
-          </div>
+          <Button 
+            onClick={() => window.location.reload()}
+            className="bg-purple-600 hover:bg-purple-700"
+          >
+            Reload Page
+          </Button>
         </Card>
       </div>
     );
@@ -277,7 +151,7 @@ export default function EmployeeJoin() {
   if (joinMutation.isError) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center p-6">
-        <Card className="max-w-md w-full p-8 text-center">
+        <Card className="max-w-md w-full p-8 text-center border-0 shadow-xl">
           <AlertCircle className="w-16 h-16 mx-auto text-red-500 mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Cannot Start Interview</h2>
           <p className="text-gray-600 mb-4">
