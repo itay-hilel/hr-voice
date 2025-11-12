@@ -10,7 +10,8 @@ export default function EmployeeJoin() {
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
   const interviewId = urlParams.get('id');
-  const sessionToken = urlParams.get('token');
+  const employeeEmail = urlParams.get('email');
+  const sessionId = urlParams.get('session');
 
   const [hasJoined, setHasJoined] = useState(false);
   const [roomData, setRoomData] = useState(null);
@@ -27,15 +28,29 @@ export default function EmployeeJoin() {
 
   const joinMutation = useMutation({
     mutationFn: async () => {
-      // Create a new session
       const user = await base44.auth.me();
-      const session = await base44.entities.InterviewSession.create({
-        interview_id: interviewId,
-        employee_email: user.email,
-        employee_name: interview?.is_anonymous ? null : user.full_name,
-        session_status: 'Pending',
-        join_token: sessionToken || Math.random().toString(36).substring(7)
-      });
+      
+      // Find or create session
+      let session;
+      if (sessionId) {
+        const sessions = await base44.entities.InterviewSession.filter({ id: sessionId });
+        session = sessions[0];
+      } else if (employeeEmail) {
+        const sessions = await base44.entities.InterviewSession.filter({ 
+          interview_id: interviewId,
+          employee_email: employeeEmail
+        });
+        session = sessions[0];
+      }
+      
+      if (!session) {
+        session = await base44.entities.InterviewSession.create({
+          interview_id: interviewId,
+          employee_email: user.email,
+          employee_name: interview?.is_anonymous ? null : user.full_name,
+          session_status: 'Pending'
+        });
+      }
 
       // Create LiveKit room and get tokens
       const response = await fetch('/api/functions/createInterviewRoom', {

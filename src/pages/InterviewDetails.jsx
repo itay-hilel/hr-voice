@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Skeleton } from "@/components/ui/skeleton";
 import InsightCard from '../components/hrvoice/InsightCard';
+import InviteLinksPanel from '../components/hrvoice/InviteLinksPanel';
 
 export default function InterviewDetails() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -128,6 +129,9 @@ export default function InterviewDetails() {
             </div>
           </div>
         </div>
+
+        {/* Employee Invitations */}
+        <InviteLinksPanel interview={interview} sessions={sessions} />
 
         {/* Insights */}
         {completedSessions.length > 0 && (

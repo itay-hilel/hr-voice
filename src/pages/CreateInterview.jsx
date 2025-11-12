@@ -50,14 +50,26 @@ export default function CreateInterview() {
         .map(e => e.trim())
         .filter(e => e.length > 0);
       
-      return base44.entities.VoiceInterview.create({
+      const interview = await base44.entities.VoiceInterview.create({
         ...data,
         target_employees: emailArray
       });
+
+      // Create pending sessions for each employee
+      for (const email of emailArray) {
+        await base44.entities.InterviewSession.create({
+          interview_id: interview.id,
+          employee_email: email,
+          session_status: 'Pending'
+        });
+      }
+
+      return interview;
     },
     onSuccess: (newInterview) => {
       queryClient.invalidateQueries({ queryKey: ['interviews'] });
-      navigate(createPageUrl('Dashboard'));
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      navigate(createPageUrl('InterviewDetails') + `?id=${newInterview.id}`);
     }
   });
 
