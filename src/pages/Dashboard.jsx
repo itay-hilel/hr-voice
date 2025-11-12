@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Plus, Mic, TrendingUp, Users, MessageSquare, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { createPageUrl } from './utils';
+import { createPageUrl } from '@/utils';
 import StatsCard from '../components/hrvoice/StatsCard';
 import CampaignCard from '../components/hrvoice/CampaignCard';
 import InsightCard from '../components/hrvoice/InsightCard';

@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Share2, Download, Users, TrendingUp, MessageSquare, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { createPageUrl } from './utils';
+import { createPageUrl } from '@/utils';
 import { Skeleton } from "@/components/ui/skeleton";
 import InsightCard from '../components/hrvoice/InsightCard';
 

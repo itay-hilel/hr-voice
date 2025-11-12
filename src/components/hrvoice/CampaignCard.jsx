@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Calendar, Users, Clock, MoreVertical, Play, Pause, BarChart3 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from "@/lib/utils";
-import { createPageUrl } from './utils';
+import { createPageUrl } from '@/utils';
 import { Link } from 'react-router-dom';
 
 const statusColors = {
