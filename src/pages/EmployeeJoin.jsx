@@ -16,6 +16,7 @@ export default function EmployeeJoin() {
   const [hasJoined, setHasJoined] = useState(false);
   const [roomData, setRoomData] = useState(null);
   const [currentSession, setCurrentSession] = useState(null);
+  const [errorDetails, setErrorDetails] = useState(null);
 
   const { data: interview, isLoading, error: loadError } = useQuery({
     queryKey: ['interview', interviewId],
@@ -28,13 +29,22 @@ export default function EmployeeJoin() {
         console.log('Interview loaded successfully:', response.data);
         return response.data;
       } catch (error) {
-        console.error('Error loading interview:', error);
-        console.error('Error details:', error.response?.data || error.message);
+        console.error('ERROR CAUGHT:', error);
+        const details = {
+          message: error.message,
+          status: error.response?.status,
+          data: error.response?.data,
+          fullError: JSON.stringify(error, null, 2)
+        };
+        console.error('Full error details:', details);
+        setErrorDetails(details);
         throw error;
       }
     },
     enabled: !!interviewId,
-    retry: 1
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false
   });
 
   const joinMutation = useMutation({
@@ -128,30 +138,66 @@ export default function EmployeeJoin() {
   if (loadError || !interview) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center p-6">
-        <Card className="max-w-md w-full p-8 text-center border-0 shadow-xl">
+        <Card className="max-w-2xl w-full p-8 border-0 shadow-xl">
           <AlertCircle className="w-16 h-16 mx-auto text-red-500 mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Interview Not Found</h2>
-          <p className="text-gray-600 mb-4">
-            {loadError 
-              ? `Error: ${loadError.message || 'Unable to load interview'}` 
-              : 'This interview link may be invalid or expired.'}
-          </p>
-          {loadError && (
-            <div className="space-y-4">
-              <div className="text-xs text-left bg-red-50 p-3 rounded-lg">
-                <p className="font-mono text-red-800 break-all">
-                  Interview ID: {interviewId}<br/>
-                  Error: {JSON.stringify(loadError.response?.data || loadError.message)}
+          <h2 className="text-2xl font-bold text-gray-900 mb-4 text-center">Unable to Load Interview</h2>
+          
+          <div className="space-y-4 mb-6">
+            <div className="bg-gray-50 p-4 rounded-lg text-left">
+              <p className="text-sm font-semibold text-gray-700 mb-2">📋 Request Details:</p>
+              <div className="font-mono text-xs text-gray-600 space-y-1">
+                <p>Interview ID: <span className="text-purple-600">{interviewId || 'MISSING'}</span></p>
+                <p>Email: <span className="text-purple-600">{employeeEmail || 'Not provided'}</span></p>
+                <p>Session: <span className="text-purple-600">{sessionId || 'Not provided'}</span></p>
+              </div>
+            </div>
+
+            {errorDetails && (
+              <div className="bg-red-50 p-4 rounded-lg text-left border-2 border-red-200">
+                <p className="text-sm font-semibold text-red-700 mb-2">❌ Error Details:</p>
+                <div className="font-mono text-xs text-red-800 space-y-1 max-h-64 overflow-auto">
+                  {errorDetails.message && <p>Message: {errorDetails.message}</p>}
+                  {errorDetails.status && <p>Status: {errorDetails.status}</p>}
+                  {errorDetails.data && (
+                    <div className="mt-2 p-2 bg-red-100 rounded">
+                      <p className="mb-1">Response:</p>
+                      <pre className="whitespace-pre-wrap break-all">
+                        {JSON.stringify(errorDetails.data, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {loadError && !errorDetails && (
+              <div className="bg-red-50 p-4 rounded-lg text-left">
+                <p className="text-sm font-semibold text-red-700 mb-2">❌ Error:</p>
+                <p className="font-mono text-xs text-red-800">
+                  {loadError.message || 'Unknown error occurred'}
                 </p>
               </div>
-              <Button 
-                onClick={() => window.location.reload()}
-                className="bg-purple-600 hover:bg-purple-700"
-              >
-                Try Again
-              </Button>
-            </div>
-          )}
+            )}
+          </div>
+
+          <div className="flex gap-3 justify-center">
+            <Button 
+              onClick={() => window.location.reload()}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              Reload Page
+            </Button>
+            <Button 
+              variant="outline"
+              onClick={() => {
+                console.log('Full error object:', loadError);
+                console.log('Error details:', errorDetails);
+                alert('Error details logged to console. Press F12 to view.');
+              }}
+            >
+              Show Console Logs
+            </Button>
+          </div>
         </Card>
       </div>
     );
