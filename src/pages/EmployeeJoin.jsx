@@ -21,8 +21,10 @@ export default function EmployeeJoin() {
     queryKey: ['interview', interviewId],
     queryFn: async () => {
       try {
-        const interviews = await base44.entities.VoiceInterview.filter({ id: interviewId });
-        return interviews[0];
+        const response = await base44.functions.invoke('getPublicInterview', { 
+          interviewId 
+        });
+        return response.data;
       } catch (error) {
         console.error('Error loading interview:', error);
         throw error;
@@ -73,23 +75,14 @@ export default function EmployeeJoin() {
       }
 
       // Create LiveKit room and get tokens
-      const response = await fetch('/api/functions/createInterviewRoom', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          interviewId,
-          sessionId: session.id,
-          participantName: interview?.is_anonymous ? 'Anonymous' : user.full_name,
-          ttl: `${interview?.duration_minutes || 5}m`
-        })
+      const response = await base44.functions.invoke('createInterviewRoom', {
+        interviewId,
+        sessionId: session.id,
+        participantName: interview?.is_anonymous ? 'Anonymous' : user.full_name,
+        ttl: `${interview?.duration_minutes || 5}m`
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to create interview room');
-      }
-
-      const roomData = await response.json();
-      return { session, roomData };
+      return { session, roomData: response.data };
     },
     onSuccess: ({ session, roomData }) => {
       setCurrentSession(session);

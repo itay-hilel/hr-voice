@@ -1,131 +1,91 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.7.1';
-import { AccessToken } from 'npm:livekit-server-sdk@2.7.2';
-
-// Configure LiveKit
-const LIVEKIT_API_KEY = Deno.env.get("LIVEKIT_API_KEY");
-const LIVEKIT_API_SECRET = Deno.env.get("LIVEKIT_API_SECRET");
-const LIVEKIT_URL = Deno.env.get("LIVEKIT_URL") || "wss://your-project.livekit.cloud";
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.4';
+import { AccessToken } from 'npm:livekit-server-sdk@2.6.1';
 
 Deno.serve(async (req) => {
-    // 1. Authenticate user and parse request
-    const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    if (!user) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
-    }
-
-    if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
-        return new Response(
-            JSON.stringify({ error: 'LIVEKIT_API_KEY or LIVEKIT_API_SECRET is not configured.' }), 
-            { status: 500 }
-        );
-    }
-
-    const { 
-        interviewId,
-        sessionId,
-        participantName,
-        ttl 
-    } = await req.json();
-    
-    if (!interviewId || !sessionId || !participantName) {
-        return new Response(
-            JSON.stringify({ error: 'interviewId, sessionId, and participantName are required.' }), 
-            { status: 400 }
-        );
-    }
-
     try {
-        // Generate unique room name based on session
-        const roomName = `interview-${interviewId}-${sessionId}`;
-        const tokenTTL = ttl || '2h';
+        const base44 = createClientFromRequest(req);
+        
+        // Verify user is authenticated
+        const user = await base44.auth.me();
+        if (!user) {
+            return Response.json({ error: 'Unauthorized' }, { status: 401 });
+        }
 
-        console.log("=== DEBUG: Creating interview room ===");
-        console.log({
-            roomName,
-            interviewId,
-            sessionId,
-            participantName,
-            userId: user.id,
-            userEmail: user.email
-        });
+        const { interviewId, sessionId, participantName, ttl } = await req.json();
+
+        if (!interviewId || !sessionId) {
+            return Response.json({ 
+                error: 'Missing required parameters: interviewId, sessionId' 
+            }, { status: 400 });
+        }
+
+        // Get LiveKit credentials from environment
+        const livekitUrl = Deno.env.get('LIVEKIT_URL');
+        const apiKey = Deno.env.get('LIVEKIT_API_KEY');
+        const apiSecret = Deno.env.get('LIVEKIT_API_SECRET');
+
+        if (!livekitUrl || !apiKey || !apiSecret) {
+            return Response.json({ 
+                error: 'LiveKit credentials not configured. Please set LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET in your app secrets.' 
+            }, { status: 500 });
+        }
+
+        // Create unique room name for this session
+        const roomName = `interview_${interviewId}_${sessionId}`;
 
         // Create participant token (employee)
-        const participantIdentity = `employee-${user.id}-${Date.now()}`;
-        const participantToken = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
-            identity: participantIdentity,
-            name: participantName,
-            ttl: tokenTTL,
+        const participantToken = new AccessToken(apiKey, apiSecret, {
+            identity: `employee_${user.email}`,
+            name: participantName || 'Employee',
+            ttl: ttl || '5m'
         });
-
+        
         participantToken.addGrant({
-            roomJoin: true,
             room: roomName,
-            canPublish: true,
-            canSubscribe: true,
-            canPublishData: true,
-        });
-
-        const participantJWT = await participantToken.toJwt();
-
-        console.log("=== DEBUG: Participant token created ===");
-        console.log({ identity: participantIdentity, name: participantName });
-
-        // Create AI agent token (interviewer)
-        const agentIdentity = `ai-agent-${Date.now()}`;
-        const agentToken = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
-            identity: agentIdentity,
-            name: "AI Interviewer",
-            ttl: tokenTTL,
-        });
-
-        agentToken.addGrant({
             roomJoin: true,
-            room: roomName,
             canPublish: true,
-            canSubscribe: true,
-            canPublishData: true,
+            canSubscribe: true
         });
 
-        const agentJWT = await agentToken.toJwt();
+        // Create AI interviewer token
+        const aiToken = new AccessToken(apiKey, apiSecret, {
+            identity: `ai_interviewer_${sessionId}`,
+            name: 'AI Interviewer',
+            ttl: ttl || '5m'
+        });
+        
+        aiToken.addGrant({
+            room: roomName,
+            roomJoin: true,
+            canPublish: true,
+            canSubscribe: true
+        });
 
-        console.log("=== DEBUG: AI Agent token created ===");
-        console.log({ identity: agentIdentity });
-
-        // Update session with room info
+        // Update session to mark as started
         await base44.entities.InterviewSession.update(sessionId, {
             session_status: 'In Progress',
             started_at: new Date().toISOString()
         });
 
-        console.log("=== DEBUG: Interview room created successfully ===");
-
-        // Return tokens and connection info
-        return new Response(JSON.stringify({
-            roomName,
-            serverUrl: LIVEKIT_URL,
+        return Response.json({
+            serverUrl: livekitUrl,
+            roomName: roomName,
             participant: {
-                token: participantJWT,
-                name: participantName,
-                identity: participantIdentity
+                token: await participantToken.toJwt(),
+                identity: `employee_${user.email}`,
+                name: participantName || 'Employee'
             },
-            agent: {
-                token: agentJWT,
-                identity: agentIdentity
-            },
-            expiresIn: tokenTTL,
-            interviewId,
-            sessionId
-        }), {
-            headers: { 'Content-Type': 'application/json' }
+            aiInterviewer: {
+                token: await aiToken.toJwt(),
+                identity: `ai_interviewer_${sessionId}`,
+                name: 'AI Interviewer'
+            }
         });
 
     } catch (error) {
-        console.error("=== DEBUG: Error in createInterviewRoom function ===");
-        console.error(error);
-        return new Response(
-            JSON.stringify({ error: error.message }), 
-            { status: 500 }
-        );
+        console.error('Error creating interview room:', error);
+        return Response.json({ 
+            error: error.message || 'Failed to create interview room' 
+        }, { status: 500 });
     }
 });
