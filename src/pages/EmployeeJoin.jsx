@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,8 @@ export default function EmployeeJoin() {
   const [conversationId, setConversationId] = useState(null);
   const [interviewStarted, setInterviewStarted] = useState(false);
   const [interviewCompleted, setInterviewCompleted] = useState(false);
+  const [widgetReady, setWidgetReady] = useState(false);
+  const widgetContainerRef = useRef(null);
 
   // Fetch interview and session data via backend function
   const { data, isLoading, error } = useQuery({
@@ -55,62 +57,56 @@ export default function EmployeeJoin() {
     }
   });
 
-  // Load ElevenLabs SDK
+  // Initialize ElevenLabs widget when interview starts
   useEffect(() => {
-    if (!interview?.agent_id) return;
+    if (!interview?.agent_id || !interviewStarted || !widgetContainerRef.current) return;
 
-    const script = document.createElement('script');
-    script.src = 'https://elevenlabs.io/convai-widget/index.js';
-    script.async = true;
-    document.body.appendChild(script);
+    console.log('Initializing ElevenLabs widget with agent:', interview.agent_id);
 
+    // Create widget element
+    const widget = document.createElement('elevenlabs-convai');
+    widget.setAttribute('agent-id', interview.agent_id);
+    
+    // Add event listeners
+    widget.addEventListener('connected', () => {
+      console.log('ElevenLabs: Connected');
+      setWidgetReady(true);
+    });
+
+    widget.addEventListener('disconnected', () => {
+      console.log('ElevenLabs: Disconnected');
+    });
+
+    widget.addEventListener('conversationstart', (e) => {
+      console.log('ElevenLabs: Conversation started', e.detail);
+      const convId = e.detail?.conversationId;
+      if (convId) {
+        setConversationId(convId);
+      }
+      
+      // Update session to In Progress
+      if (session?.session_status === 'Pending') {
+        updateSessionMutation.mutate({
+          session_status: 'In Progress',
+          started_at: new Date().toISOString()
+        });
+      }
+    });
+
+    widget.addEventListener('conversationend', (e) => {
+      console.log('ElevenLabs: Conversation ended', e.detail);
+    });
+
+    // Append widget to container
+    widgetContainerRef.current.appendChild(widget);
+
+    // Cleanup
     return () => {
-      if (document.body.contains(script)) {
-        document.body.removeChild(script);
+      if (widgetContainerRef.current && widgetContainerRef.current.contains(widget)) {
+        widgetContainerRef.current.removeChild(widget);
       }
     };
-  }, [interview?.agent_id]);
-
-  // Initialize ElevenLabs widget
-  useEffect(() => {
-    if (!interview?.agent_id || !window.ElevenLabs || !interviewStarted) return;
-
-    const timer = setTimeout(() => {
-      try {
-        window.ElevenLabs.Convai.startSession({
-          agentId: interview.agent_id,
-          onConnect: () => {
-            console.log('Connected to ElevenLabs');
-          },
-          onDisconnect: () => {
-            console.log('Disconnected from ElevenLabs');
-          },
-          onMessage: (message) => {
-            console.log('Message:', message);
-          },
-          onModeChange: (mode) => {
-            console.log('Mode changed:', mode);
-            if (mode.mode === 'speaking') {
-              if (session?.session_status === 'Pending') {
-                updateSessionMutation.mutate({
-                  session_status: 'In Progress',
-                  started_at: new Date().toISOString()
-                });
-              }
-            }
-          },
-          onConversationIdChange: (id) => {
-            console.log('Conversation ID:', id);
-            setConversationId(id);
-          }
-        });
-      } catch (error) {
-        console.error('Failed to start ElevenLabs session:', error);
-      }
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  }, [interview?.agent_id, window.ElevenLabs, interviewStarted, session]);
+  }, [interview?.agent_id, interviewStarted, session]);
 
   const handleStartInterview = () => {
     setInterviewStarted(true);
@@ -119,10 +115,9 @@ export default function EmployeeJoin() {
   const handleEndInterview = async () => {
     if (conversationId) {
       await analyzeTranscriptMutation.mutateAsync({ conversationId });
-    }
-    
-    if (window.ElevenLabs?.Convai) {
-      window.ElevenLabs.Convai.endSession();
+    } else {
+      // No conversation happened, just mark as completed
+      setInterviewCompleted(true);
     }
   };
 
@@ -218,11 +213,17 @@ export default function EmployeeJoin() {
         </div>
         <h1 className="text-3xl font-bold text-gray-900 mb-4">Interview in Progress</h1>
         <p className="text-lg text-gray-600 mb-8">
-          Speak naturally with the AI interviewer. Click "End Interview" when you're done.
+          {widgetReady ? 'The AI interviewer is ready. Start speaking!' : 'Loading AI interviewer...'}
         </p>
 
-        {/* ElevenLabs widget will appear here */}
-        <div id="elevenlabs-convai-widget" className="mb-8"></div>
+        {/* ElevenLabs widget container */}
+        <div ref={widgetContainerRef} className="mb-8 flex justify-center"></div>
+
+        {!widgetReady && (
+          <div className="mb-8">
+            <Loader2 className="w-8 h-8 mx-auto text-purple-600 animate-spin" />
+          </div>
+        )}
 
         <Button 
           size="lg" 
@@ -239,6 +240,12 @@ export default function EmployeeJoin() {
             'End Interview'
           )}
         </Button>
+
+        {!widgetReady && (
+          <p className="text-xs text-gray-500 mt-4">
+            Agent ID: {interview.agent_id}
+          </p>
+        )}
       </Card>
     </div>
   );
