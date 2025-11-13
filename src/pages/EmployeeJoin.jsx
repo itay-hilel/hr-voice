@@ -12,10 +12,10 @@ export default function EmployeeJoin() {
   const employeeEmail = urlParams.get('email');
   const sessionId = urlParams.get('session');
 
-  const [conversationId, setConversationId] = useState(null);
   const [agentId, setAgentId] = useState(null);
   const [interviewStarted, setInterviewStarted] = useState(false);
   const [interviewCompleted, setInterviewCompleted] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState(sessionId);
 
   // Fetch interview details
   const { data: interview, isLoading, error: loadError } = useQuery({
@@ -40,7 +40,7 @@ export default function EmployeeJoin() {
     staleTime: 300000,
   });
 
-  // Start interview - create ElevenLabs conversation
+  // Start interview - create session and get agent ID
   const startMutation = useMutation({
     mutationFn: async () => {
       // Check authentication
@@ -70,69 +70,73 @@ export default function EmployeeJoin() {
           interview_id: interviewId,
           employee_email: user.email,
           employee_name: interview?.is_anonymous ? null : user.full_name,
-          session_status: 'Pending'
+          session_status: 'In Progress',
+          started_at: new Date().toISOString()
         });
       }
 
-      // Create ElevenLabs conversation
-      const response = await base44.functions.invoke('createElevenLabsConversation', {
-        interviewId,
-        sessionId: session.id
-      });
+      setCurrentSessionId(session.id);
 
-      return response.data;
+      // Get ElevenLabs agent ID
+      const agentIdFromEnv = 'AGENT_ID'; // This will be replaced by backend
+      
+      return { 
+        session_id: session.id,
+        agent_id: agentIdFromEnv
+      };
     },
     onSuccess: (data) => {
-      setConversationId(data.conversation_id);
       setAgentId(data.agent_id);
       setInterviewStarted(true);
     }
   });
 
-  // Initialize ElevenLabs widget when conversation is ready
+  // Initialize ElevenLabs widget
   useEffect(() => {
-    if (!conversationId || !agentId) return;
+    if (!interviewStarted || !agentId) return;
 
-    // Load ElevenLabs widget script
+    // Load widget script
     const script = document.createElement('script');
-    script.src = 'https://elevenlabs.io/convai-widget/index.js';
+    script.src = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
+    script.type = 'text/javascript';
     script.async = true;
     
     script.onload = () => {
-      // Initialize widget
-      if (window.elevenlabs) {
-        window.elevenlabs.conversationalAI.init({
-          agentId: agentId,
-          conversationId: conversationId,
-          onConversationEnd: handleInterviewEnd
-        });
+      console.log('ElevenLabs widget loaded');
+      
+      // Listen for conversation end
+      const widget = document.querySelector('elevenlabs-convai');
+      if (widget) {
+        widget.addEventListener('elevenlabs-convai:end', handleInterviewEnd);
       }
     };
 
     document.body.appendChild(script);
 
     return () => {
-      // Cleanup
       if (script.parentNode) {
         script.parentNode.removeChild(script);
       }
     };
-  }, [conversationId, agentId]);
+  }, [interviewStarted, agentId]);
 
   // Handle interview completion
   const handleInterviewEnd = async () => {
+    console.log('Interview ended');
     setInterviewCompleted(true);
 
-    // Fetch and save transcript
+    // Update session status - transcript will be fetched separately by admin
     try {
-      await base44.functions.invoke('getElevenLabsTranscript', {
-        conversationId: conversationId,
-        sessionId: sessionId
-      });
-      
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      if (currentSessionId) {
+        await base44.entities.InterviewSession.update(currentSessionId, {
+          session_status: 'Completed',
+          completed_at: new Date().toISOString()
+        });
+        
+        queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      }
     } catch (error) {
-      console.error('Error fetching transcript:', error);
+      console.error('Error updating session:', error);
     }
   };
 
@@ -223,7 +227,7 @@ export default function EmployeeJoin() {
     );
   }
 
-  if (interviewStarted && conversationId) {
+  if (interviewStarted) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 p-6">
         <div className="max-w-4xl mx-auto">
@@ -232,14 +236,18 @@ export default function EmployeeJoin() {
             <p className="text-gray-600">Voice Interview Session</p>
           </div>
 
-          {/* ElevenLabs widget will be injected here */}
+          {/* ElevenLabs Widget */}
           <Card className="p-8 border-0 shadow-xl bg-white/90 backdrop-blur">
-            <div id="elevenlabs-widget" className="min-h-[400px] flex items-center justify-center">
-              <div className="text-center">
-                <Loader2 className="w-12 h-12 mx-auto text-purple-600 mb-4 animate-spin" />
-                <p className="text-gray-600">Initializing AI interviewer...</p>
-                <p className="text-sm text-gray-500 mt-2">The conversation will start in a moment</p>
-              </div>
+            <div className="text-center mb-4">
+              <p className="text-gray-600 mb-4">Click the button below to start your interview</p>
+            </div>
+            
+            {/* Widget embed */}
+            <div className="flex justify-center">
+              <elevenlabs-convai 
+                agent-id={agentId}
+                variant="expanded"
+              />
             </div>
           </Card>
 
@@ -268,6 +276,7 @@ export default function EmployeeJoin() {
                   <li>Speak naturally and honestly</li>
                   <li>Take your time to think before responding</li>
                   <li>The AI will guide you through the conversation</li>
+                  <li>Click the microphone button when ready to start</li>
                 </ul>
               </div>
             </div>
