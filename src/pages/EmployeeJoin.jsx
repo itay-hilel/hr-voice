@@ -3,7 +3,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Mic, CheckCircle, Loader2, AlertCircle, Phone, MessageSquare } from 'lucide-react';
+import { Mic, CheckCircle, Loader2, AlertCircle, Phone, Volume2, Radio } from 'lucide-react';
 import { cn } from "@/lib/utils";
 
 export default function EmployeeJoin() {
@@ -117,19 +117,25 @@ export default function EmployeeJoin() {
   useEffect(() => {
     if (!widgetLoaded || !signedUrl || !interviewStarted || widgetRef.current) return;
 
-    // Create widget element
+    // Create widget element - VOICE ONLY MODE
     const widget = document.createElement('elevenlabs-convai');
     widget.setAttribute('signed-url', signedUrl);
+    widget.setAttribute('variant', 'expanded'); // Expanded mode for better voice UI
+    
+    // Customize appearance for voice-focused experience
     widget.setAttribute('avatar-orb-color-1', '#9333ea'); // Purple
     widget.setAttribute('avatar-orb-color-2', '#ec4899'); // Pink
-    widget.setAttribute('start-call-text', 'Start Interview');
+    
+    // Voice-focused text customization
+    widget.setAttribute('action-text', '🎙️ Start Voice Interview');
+    widget.setAttribute('start-call-text', 'Begin Speaking');
     widget.setAttribute('end-call-text', 'End Interview');
-    widget.setAttribute('listening-text', 'Listening to you...');
-    widget.setAttribute('speaking-text', 'AI is speaking...');
+    widget.setAttribute('listening-text', '🎧 Listening to you...');
+    widget.setAttribute('speaking-text', '🗣️ AI is responding...');
     
     // Add event listeners
     widget.addEventListener('elevenlabs-convai:call:started', (e) => {
-      console.log('Call started:', e.detail);
+      console.log('Voice call started:', e.detail);
       setCallStatus('active');
       const convId = e.detail?.conversationId;
       if (convId) setConversationId(convId);
@@ -144,7 +150,7 @@ export default function EmployeeJoin() {
     });
 
     widget.addEventListener('elevenlabs-convai:call:ended', async (e) => {
-      console.log('Call ended:', e.detail);
+      console.log('Voice call ended:', e.detail);
       setCallStatus('ending');
       const convId = e.detail?.conversationId || conversationId;
       
@@ -156,7 +162,7 @@ export default function EmployeeJoin() {
     });
 
     widget.addEventListener('elevenlabs-convai:loaded', () => {
-      console.log('Widget loaded');
+      console.log('Voice widget loaded and ready');
     });
 
     // Add widget to container
@@ -216,7 +222,7 @@ export default function EmployeeJoin() {
             <CheckCircle className="w-12 h-12 text-green-600" />
           </div>
           <h1 className="text-4xl font-bold text-gray-900 mb-4">Thank You! 🎉</h1>
-          <p className="text-xl text-gray-600 mb-2">Your interview has been completed.</p>
+          <p className="text-xl text-gray-600 mb-2">Your voice interview has been completed.</p>
           <p className="text-gray-500">
             We appreciate you taking the time to share your thoughts with us.
             Your feedback is valuable and will help us improve.
@@ -234,7 +240,7 @@ export default function EmployeeJoin() {
             <Mic className="w-12 h-12 text-purple-600" />
           </div>
           <h1 className="text-4xl font-bold text-gray-900 mb-4">{interview.title}</h1>
-          <p className="text-xl text-gray-600 mb-2">Voice Interview: {interview.topic}</p>
+          <p className="text-xl text-gray-600 mb-2">🎙️ Voice Interview: {interview.topic}</p>
           <p className="text-gray-500 mb-8">
             Duration: ~{interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}
           </p>
@@ -246,13 +252,21 @@ export default function EmployeeJoin() {
           )}
 
           <div className="bg-blue-50 rounded-xl p-6 mb-8 text-left">
-            <h3 className="font-semibold text-gray-900 mb-3">What to expect:</h3>
+            <h3 className="font-semibold text-gray-900 mb-3">🎧 Voice Interview Instructions:</h3>
             <ul className="space-y-2 text-gray-600">
-              <li>✓ A friendly AI interviewer will ask you questions</li>
-              <li>✓ Speak naturally and honestly - there are no wrong answers</li>
-              <li>✓ The conversation will last about {interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}</li>
-              <li>✓ Your responses {interview.is_anonymous ? 'are anonymous' : 'will be recorded'}</li>
+              <li>🎤 <strong>Voice Only</strong> - Speak naturally, just like a phone conversation</li>
+              <li>👂 The AI will listen and ask follow-up questions</li>
+              <li>💬 Share your honest thoughts - no typing required!</li>
+              <li>⏱️ Takes about {interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}</li>
+              <li>{interview.is_anonymous ? '🔒 Completely anonymous' : '🔐 Confidential responses'}</li>
             </ul>
+          </div>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8">
+            <p className="text-sm text-amber-800 flex items-center gap-2">
+              <Radio className="w-4 h-4" />
+              <strong>Important:</strong> Make sure your microphone is enabled and working before starting.
+            </p>
           </div>
 
           {error && (
@@ -275,7 +289,7 @@ export default function EmployeeJoin() {
             ) : (
               <>
                 <Mic className="w-5 h-5 mr-3" />
-                Start Interview
+                Start Voice Interview
               </>
             )}
           </Button>
@@ -298,7 +312,7 @@ export default function EmployeeJoin() {
         <Card className="p-8 text-center mb-6 bg-white/95 backdrop-blur">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">{interview.title}</h1>
           <p className="text-lg text-gray-600">
-            {interview.topic} • ~{interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}
+            🎙️ {interview.topic} • ~{interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}
           </p>
         </Card>
 
@@ -309,24 +323,24 @@ export default function EmployeeJoin() {
             <div className="space-y-6">
               <div className="flex items-start gap-4">
                 <div className="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
-                  <Phone className="w-6 h-6 text-purple-600" />
+                  <Mic className="w-6 h-6 text-purple-600" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900 mb-1">Voice Interview</h3>
+                  <h3 className="font-semibold text-gray-900 mb-1">Voice Conversation</h3>
                   <p className="text-sm text-gray-600">
-                    Speak naturally with our AI interviewer. It's like having a conversation with a colleague.
+                    Speak naturally with our AI. It listens and responds just like a real conversation.
                   </p>
                 </div>
               </div>
 
               <div className="flex items-start gap-4">
                 <div className="w-12 h-12 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0">
-                  <MessageSquare className="w-6 h-6 text-pink-600" />
+                  <Volume2 className="w-6 h-6 text-pink-600" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900 mb-1">Be Honest</h3>
+                  <h3 className="font-semibold text-gray-900 mb-1">Hands-Free</h3>
                   <p className="text-sm text-gray-600">
-                    Share your genuine thoughts and feelings. There are no wrong answers.
+                    No typing needed - just speak your mind freely and naturally.
                   </p>
                 </div>
               </div>
@@ -341,8 +355,8 @@ export default function EmployeeJoin() {
                   </h3>
                   <p className="text-sm text-gray-600">
                     {interview.is_anonymous 
-                      ? 'Your responses are completely anonymous.'
-                      : 'Your responses are treated confidentially.'}
+                      ? 'Your voice responses are completely anonymous.'
+                      : 'Your voice responses are treated confidentially.'}
                   </p>
                 </div>
               </div>
@@ -357,10 +371,10 @@ export default function EmployeeJoin() {
                   : "bg-gray-50 border-gray-200"
               )}>
                 <p className="text-sm font-medium text-gray-900">
-                  {callStatus === 'idle' && '⏸️ Ready to begin'}
-                  {callStatus === 'starting' && '🎙️ Initializing...'}
-                  {callStatus === 'active' && '✅ Interview in progress'}
-                  {callStatus === 'ending' && '⏳ Processing...'}
+                  {callStatus === 'idle' && '⏸️ Ready to begin voice interview'}
+                  {callStatus === 'starting' && '🎙️ Connecting to voice system...'}
+                  {callStatus === 'active' && '🔴 Live - Voice interview in progress'}
+                  {callStatus === 'ending' && '⏳ Processing your voice responses...'}
                 </p>
               </div>
             </div>
@@ -377,7 +391,8 @@ export default function EmployeeJoin() {
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center">
                   <Loader2 className="w-12 h-12 text-purple-600 animate-spin mx-auto mb-3" />
-                  <p className="text-gray-600">Loading voice interface...</p>
+                  <p className="text-gray-600 font-medium">Activating voice system...</p>
+                  <p className="text-sm text-gray-500 mt-2">Make sure your microphone is ready</p>
                 </div>
               </div>
             )}
@@ -389,7 +404,7 @@ export default function EmployeeJoin() {
           <Card className="mt-6 p-6 bg-white/95 backdrop-blur">
             <div className="flex items-center justify-center gap-3 text-purple-600">
               <Loader2 className="w-5 h-5 animate-spin" />
-              <span className="font-medium">Processing your responses...</span>
+              <span className="font-medium">Analyzing your voice responses...</span>
             </div>
           </Card>
         )}
@@ -401,7 +416,7 @@ export default function EmployeeJoin() {
         )}
       </div>
 
-      {/* Custom widget styling */}
+      {/* Custom widget styling - ensures voice-only expanded mode */}
       <style>{`
         elevenlabs-convai {
           width: 100% !important;
