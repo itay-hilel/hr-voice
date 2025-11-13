@@ -3,7 +3,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Mic, CheckCircle, Loader2, AlertCircle, Phone, Volume2, Radio } from 'lucide-react';
+import { Mic, CheckCircle, Loader2, AlertCircle, Phone, Volume2, Radio, ArrowDown } from 'lucide-react';
 import { cn } from "@/lib/utils";
 
 export default function EmployeeJoin() {
@@ -388,11 +388,17 @@ export default function EmployeeJoin() {
             />
             
             {callStatus === 'starting' && !widgetRef.current && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center">
-                  <Loader2 className="w-12 h-12 text-purple-600 animate-spin mx-auto mb-3" />
-                  <p className="text-gray-600 font-medium">Activating voice system...</p>
-                  <p className="text-sm text-gray-500 mt-2">Make sure your microphone is ready</p>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <div className="text-center space-y-4">
+                  <Loader2 className="w-12 h-12 text-purple-600 animate-spin mx-auto" />
+                  <div className="space-y-2">
+                    <p className="text-gray-900 font-semibold text-lg">Look for the widget below 👇</p>
+                    <div className="flex items-center justify-center gap-2 text-purple-600">
+                      <ArrowDown className="w-5 h-5 animate-bounce" />
+                      <span className="font-medium">Bottom left corner</span>
+                    </div>
+                    <p className="text-sm text-gray-600">Click the button to start the conversation</p>
+                  </div>
                 </div>
               </div>
             )}
