@@ -9,47 +9,42 @@ export default function EmployeeJoin() {
   const urlParams = new URLSearchParams(window.location.search);
   const interviewId = urlParams.get('id');
   const sessionId = urlParams.get('session');
-  const employeeEmail = urlParams.get('email');
 
   const [conversationId, setConversationId] = useState(null);
   const [interviewStarted, setInterviewStarted] = useState(false);
   const [interviewCompleted, setInterviewCompleted] = useState(false);
 
-  // Fetch interview details
-  const { data: interview, isLoading: loadingInterview, error: interviewError } = useQuery({
-    queryKey: ['interview', interviewId],
+  // Fetch interview and session data via backend function
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['interviewData', interviewId, sessionId],
     queryFn: async () => {
-      const interviews = await base44.asServiceRole.entities.VoiceInterview.list();
-      const found = interviews.find(i => i.id === interviewId);
-      console.log('Found interview:', found);
-      return found;
+      const response = await base44.functions.invoke('getInterviewData', {
+        interviewId,
+        sessionId
+      });
+      return response.data;
     },
-    enabled: !!interviewId
+    enabled: !!interviewId && !!sessionId
   });
 
-  // Fetch session details
-  const { data: session, isLoading: loadingSession, error: sessionError } = useQuery({
-    queryKey: ['session', sessionId],
-    queryFn: async () => {
-      const sessions = await base44.asServiceRole.entities.InterviewSession.list();
-      const found = sessions.find(s => s.id === sessionId);
-      console.log('Found session:', found);
-      return found;
-    },
-    enabled: !!sessionId
-  });
+  const interview = data?.interview;
+  const session = data?.session;
 
   // Update session mutation
   const updateSessionMutation = useMutation({
-    mutationFn: async (data) => {
-      await base44.asServiceRole.entities.InterviewSession.update(sessionId, data);
+    mutationFn: async (updateData) => {
+      const response = await base44.functions.invoke('updateSession', {
+        sessionId,
+        data: updateData
+      });
+      return response.data;
     }
   });
 
   // Analyze transcript mutation
   const analyzeTranscriptMutation = useMutation({
     mutationFn: async ({ conversationId }) => {
-      const response = await base44.asServiceRole.functions.invoke('getElevenLabsTranscript', {
+      const response = await base44.functions.invoke('getElevenLabsTranscript', {
         conversationId,
         sessionId
       });
@@ -80,7 +75,6 @@ export default function EmployeeJoin() {
   useEffect(() => {
     if (!interview?.agent_id || !window.ElevenLabs || !interviewStarted) return;
 
-    // Wait for the widget to be ready
     const timer = setTimeout(() => {
       try {
         window.ElevenLabs.Convai.startSession({
@@ -97,7 +91,6 @@ export default function EmployeeJoin() {
           onModeChange: (mode) => {
             console.log('Mode changed:', mode);
             if (mode.mode === 'speaking') {
-              // Update session status to In Progress on first speaking
               if (session?.session_status === 'Pending') {
                 updateSessionMutation.mutate({
                   session_status: 'In Progress',
@@ -125,17 +118,15 @@ export default function EmployeeJoin() {
 
   const handleEndInterview = async () => {
     if (conversationId) {
-      // Analyze transcript
       await analyzeTranscriptMutation.mutateAsync({ conversationId });
     }
     
-    // End the ElevenLabs session
     if (window.ElevenLabs?.Convai) {
       window.ElevenLabs.Convai.endSession();
     }
   };
 
-  if (loadingInterview || loadingSession) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 flex items-center justify-center">
         <Loader2 className="w-12 h-12 text-white animate-spin" />
@@ -143,23 +134,15 @@ export default function EmployeeJoin() {
     );
   }
 
-  // Debug info
-  console.log('Interview ID:', interviewId, 'Interview:', interview, 'Error:', interviewError);
-  console.log('Session ID:', sessionId, 'Session:', session, 'Error:', sessionError);
-
-  if (!interview || !session) {
+  if (error || !interview || !session) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 flex items-center justify-center p-6">
         <Card className="p-8 text-center max-w-md">
           <h2 className="text-2xl font-bold text-red-600 mb-2">Invalid Link</h2>
           <p className="text-gray-600 mb-4">This interview link is not valid or has expired.</p>
-          {(interviewError || sessionError) && (
+          {error && (
             <div className="mt-4 p-3 bg-red-50 rounded text-left">
-              <p className="text-xs text-red-600">Debug info:</p>
-              <p className="text-xs text-gray-600">Interview ID: {interviewId}</p>
-              <p className="text-xs text-gray-600">Session ID: {sessionId}</p>
-              {interviewError && <p className="text-xs text-red-600">Interview Error: {interviewError.message}</p>}
-              {sessionError && <p className="text-xs text-red-600">Session Error: {sessionError.message}</p>}
+              <p className="text-xs text-red-600">Error: {error.message}</p>
             </div>
           )}
         </Card>
