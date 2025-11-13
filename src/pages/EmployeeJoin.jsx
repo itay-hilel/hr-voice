@@ -3,8 +3,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Mic, Clock, Shield, Sparkles, AlertCircle, Loader2 } from 'lucide-react';
-import VoiceInterviewRoom from '../components/hrvoice/VoiceInterviewRoom';
+import { Mic, Clock, Shield, Sparkles, AlertCircle, Loader2, CheckCircle } from 'lucide-react';
 
 export default function EmployeeJoin() {
   const queryClient = useQueryClient();
@@ -13,11 +12,12 @@ export default function EmployeeJoin() {
   const employeeEmail = urlParams.get('email');
   const sessionId = urlParams.get('session');
 
-  const [hasJoined, setHasJoined] = useState(false);
-  const [roomData, setRoomData] = useState(null);
-  const [currentSession, setCurrentSession] = useState(null);
+  const [conversationId, setConversationId] = useState(null);
+  const [agentId, setAgentId] = useState(null);
+  const [interviewStarted, setInterviewStarted] = useState(false);
+  const [interviewCompleted, setInterviewCompleted] = useState(false);
 
-  // Simplified approach - fetch interview directly with service role
+  // Fetch interview details
   const { data: interview, isLoading, error: loadError } = useQuery({
     queryKey: ['public-interview', interviewId],
     queryFn: async () => {
@@ -25,7 +25,6 @@ export default function EmployeeJoin() {
         throw new Error('No interview ID provided');
       }
 
-      // Fetch directly using service role
       const interviews = await base44.asServiceRole.entities.VoiceInterview.filter({ 
         id: interviewId 
       });
@@ -38,10 +37,11 @@ export default function EmployeeJoin() {
     },
     enabled: !!interviewId,
     retry: 1,
-    staleTime: 300000, // 5 minutes
+    staleTime: 300000,
   });
 
-  const joinMutation = useMutation({
+  // Start interview - create ElevenLabs conversation
+  const startMutation = useMutation({
     mutationFn: async () => {
       // Check authentication
       let user;
@@ -74,38 +74,66 @@ export default function EmployeeJoin() {
         });
       }
 
-      // Create LiveKit room
-      const response = await base44.functions.invoke('createInterviewRoom', {
+      // Create ElevenLabs conversation
+      const response = await base44.functions.invoke('createElevenLabsConversation', {
         interviewId,
-        sessionId: session.id,
-        participantName: interview?.is_anonymous ? 'Anonymous' : user.full_name,
-        ttl: `${interview?.duration_minutes || 5}m`
+        sessionId: session.id
       });
 
-      return { session, roomData: response.data };
+      return response.data;
     },
-    onSuccess: ({ session, roomData }) => {
-      setCurrentSession(session);
-      setRoomData(roomData);
-      setHasJoined(true);
+    onSuccess: (data) => {
+      setConversationId(data.conversation_id);
+      setAgentId(data.agent_id);
+      setInterviewStarted(true);
     }
   });
 
-  const handleSessionEnd = async (sessionData) => {
-    if (!currentSession) return;
-    
-    await base44.entities.InterviewSession.update(currentSession.id, {
-      session_status: 'Completed',
-      completed_at: new Date().toISOString(),
-      duration_seconds: sessionData.duration || 0,
-      transcript: JSON.stringify(sessionData.transcript || []),
-      sentiment_score: sessionData.sentiment_score || 0,
-      key_themes: ['Work-Life Balance', 'Team Collaboration'],
-      summary: 'Employee expressed positive sentiment.',
-      recommended_actions: ['Continue current practices']
-    });
+  // Initialize ElevenLabs widget when conversation is ready
+  useEffect(() => {
+    if (!conversationId || !agentId) return;
 
-    queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    // Load ElevenLabs widget script
+    const script = document.createElement('script');
+    script.src = 'https://elevenlabs.io/convai-widget/index.js';
+    script.async = true;
+    
+    script.onload = () => {
+      // Initialize widget
+      if (window.elevenlabs) {
+        window.elevenlabs.conversationalAI.init({
+          agentId: agentId,
+          conversationId: conversationId,
+          onConversationEnd: handleInterviewEnd
+        });
+      }
+    };
+
+    document.body.appendChild(script);
+
+    return () => {
+      // Cleanup
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+    };
+  }, [conversationId, agentId]);
+
+  // Handle interview completion
+  const handleInterviewEnd = async () => {
+    setInterviewCompleted(true);
+
+    // Fetch and save transcript
+    try {
+      await base44.functions.invoke('getElevenLabsTranscript', {
+        conversationId: conversationId,
+        sessionId: sessionId
+      });
+      
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    } catch (error) {
+      console.error('Error fetching transcript:', error);
+    }
   };
 
   if (isLoading) {
@@ -148,14 +176,14 @@ export default function EmployeeJoin() {
     );
   }
 
-  if (joinMutation.isError) {
+  if (startMutation.isError) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center p-6">
         <Card className="max-w-md w-full p-8 text-center border-0 shadow-xl">
           <AlertCircle className="w-16 h-16 mx-auto text-red-500 mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Cannot Start Interview</h2>
           <p className="text-gray-600 mb-4">
-            {joinMutation.error?.message || 'Unable to start interview session'}
+            {startMutation.error?.message || 'Unable to start interview session'}
           </p>
           <Button 
             onClick={() => window.location.reload()}
@@ -168,7 +196,34 @@ export default function EmployeeJoin() {
     );
   }
 
-  if (hasJoined && roomData) {
+  if (interviewCompleted) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center p-6">
+        <Card className="max-w-2xl w-full p-12 text-center border-0 shadow-xl bg-white/90 backdrop-blur">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full 
+                          bg-gradient-to-br from-green-500 to-emerald-500 mb-6">
+            <CheckCircle className="w-10 h-10 text-white" />
+          </div>
+
+          <h1 className="text-4xl font-bold text-gray-900 mb-3">Interview Complete!</h1>
+          <p className="text-xl text-gray-600 mb-8">Thank you for your honest feedback</p>
+
+          <div className="bg-green-50 rounded-xl p-6 mb-6">
+            <p className="text-gray-700">
+              Your responses have been recorded and will be reviewed by the HR team. 
+              Your insights help us create a better workplace for everyone.
+            </p>
+          </div>
+
+          <p className="text-sm text-gray-500">
+            You can close this window now.
+          </p>
+        </Card>
+      </div>
+    );
+  }
+
+  if (interviewStarted && conversationId) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 p-6">
         <div className="max-w-4xl mx-auto">
@@ -177,13 +232,16 @@ export default function EmployeeJoin() {
             <p className="text-gray-600">Voice Interview Session</p>
           </div>
 
-          <VoiceInterviewRoom
-            token={roomData.participant.token}
-            serverUrl={roomData.serverUrl}
-            roomName={roomData.roomName}
-            participantName={roomData.participant.name}
-            onSessionEnd={handleSessionEnd}
-          />
+          {/* ElevenLabs widget will be injected here */}
+          <Card className="p-8 border-0 shadow-xl bg-white/90 backdrop-blur">
+            <div id="elevenlabs-widget" className="min-h-[400px] flex items-center justify-center">
+              <div className="text-center">
+                <Loader2 className="w-12 h-12 mx-auto text-purple-600 mb-4 animate-spin" />
+                <p className="text-gray-600">Initializing AI interviewer...</p>
+                <p className="text-sm text-gray-500 mt-2">The conversation will start in a moment</p>
+              </div>
+            </div>
+          </Card>
 
           <Card className="mt-6 p-4 border-0 bg-white/80 backdrop-blur">
             <div className="flex items-center justify-between text-sm flex-wrap gap-4">
@@ -200,11 +258,26 @@ export default function EmployeeJoin() {
               <span className="text-gray-500">Topic: {interview.topic}</span>
             </div>
           </Card>
+
+          <Card className="mt-4 p-4 border-0 bg-blue-50">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+              <div className="text-sm text-blue-700">
+                <p className="font-semibold mb-1">Tips for the interview:</p>
+                <ul className="space-y-1 ml-4 list-disc">
+                  <li>Speak naturally and honestly</li>
+                  <li>Take your time to think before responding</li>
+                  <li>The AI will guide you through the conversation</li>
+                </ul>
+              </div>
+            </div>
+          </Card>
         </div>
       </div>
     );
   }
 
+  // Initial landing page
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center p-6">
       <Card className="max-w-2xl w-full p-12 text-center border-0 shadow-xl bg-white/90 backdrop-blur">
@@ -247,11 +320,11 @@ export default function EmployeeJoin() {
 
         <Button
           size="lg"
-          onClick={() => joinMutation.mutate()}
-          disabled={joinMutation.isPending}
+          onClick={() => startMutation.mutate()}
+          disabled={startMutation.isPending}
           className="w-full h-14 text-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
         >
-          {joinMutation.isPending ? (
+          {startMutation.isPending ? (
             <>
               <Loader2 className="w-5 h-5 mr-2 animate-spin" />
               Starting Session...
