@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, Volume2, VolumeX, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Loader2 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 
 export default function VoiceInterface({ 
@@ -56,17 +57,15 @@ export default function VoiceInterface({
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
       // Get conversation token from backend
-      const tokenResponse = await fetch('/api/functions/getConversationToken', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId })
+      const tokenResponse = await base44.functions.invoke('getConversationToken', {
+        agentId
       });
 
-      if (!tokenResponse.ok) {
+      if (!tokenResponse.data.token) {
         throw new Error('Failed to get conversation token');
       }
 
-      const { token } = await tokenResponse.json();
+      const token = tokenResponse.data.token;
 
       // Start conversation with ElevenLabs
       const conversation = await window.Conversation.startSession({

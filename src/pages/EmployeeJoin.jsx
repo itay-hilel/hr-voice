@@ -35,30 +35,26 @@ export default function EmployeeJoin() {
 
   // Load ElevenLabs SDK
   useEffect(() => {
-    if (document.querySelector('script[src*="@elevenlabs/client"]')) {
-      setSdkLoaded(true);
-      return;
-    }
+    const loadSDK = async () => {
+      try {
+        // Check if already loaded
+        if (window.Conversation) {
+          setSdkLoaded(true);
+          return;
+        }
 
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/@elevenlabs/client@1.0.0/dist/index.umd.js';
-    script.async = true;
-    script.onload = () => {
-      console.log('ElevenLabs SDK loaded');
-      setSdkLoaded(true);
-    };
-    script.onerror = () => {
-      console.error('Failed to load ElevenLabs SDK');
-      setError('Failed to load voice system');
-    };
-    
-    document.body.appendChild(script);
-
-    return () => {
-      if (document.body.contains(script)) {
-        document.body.removeChild(script);
+        // Load from esm.sh CDN
+        const { Conversation } = await import('https://esm.sh/@elevenlabs/client@1.0.0');
+        window.Conversation = Conversation;
+        console.log('ElevenLabs SDK loaded successfully');
+        setSdkLoaded(true);
+      } catch (err) {
+        console.error('Failed to load ElevenLabs SDK:', err);
+        setError('Failed to load voice system. Please refresh the page.');
       }
     };
+
+    loadSDK();
   }, []);
 
   // Update session mutation
@@ -189,6 +185,12 @@ export default function EmployeeJoin() {
             </ul>
           </div>
 
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 rounded-lg border border-red-200">
+              <p className="text-red-700 text-sm">{error}</p>
+            </div>
+          )}
+
           <Button 
             size="lg" 
             onClick={handleStartInterview}
@@ -198,7 +200,7 @@ export default function EmployeeJoin() {
             {!sdkLoaded ? (
               <>
                 <Loader2 className="w-5 h-5 mr-3 animate-spin" />
-                Loading...
+                Loading Voice System...
               </>
             ) : (
               <>
