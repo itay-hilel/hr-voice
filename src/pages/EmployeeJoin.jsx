@@ -86,6 +86,30 @@ export default function EmployeeJoin() {
     };
   }, []);
 
+  // Add global CSS to center the widget
+  useEffect(() => {
+    if (!interviewStarted) return;
+
+    // Add styles to center the ElevenLabs widget
+    const style = document.createElement('style');
+    style.textContent = `
+      elevenlabs-convai {
+        position: fixed !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        z-index: 9999 !important;
+      }
+    `;
+    document.head.appendChild(style);
+
+    return () => {
+      if (document.head.contains(style)) {
+        document.head.removeChild(style);
+      }
+    };
+  }, [interviewStarted]);
+
   // Initialize ElevenLabs widget when interview starts and SDK is loaded
   useEffect(() => {
     if (!interview?.agent_id || !interviewStarted || !widgetContainerRef.current || !sdkLoaded) {
@@ -140,8 +164,8 @@ export default function EmployeeJoin() {
       console.error('ElevenLabs: Error', e.detail);
     });
 
-    // Append widget to container
-    widgetContainerRef.current.appendChild(widget);
+    // Append widget to body (not container) for better positioning control
+    document.body.appendChild(widget);
 
     // Auto-set ready after 2 seconds if no load event
     const readyTimeout = setTimeout(() => {
@@ -151,8 +175,8 @@ export default function EmployeeJoin() {
     // Cleanup
     return () => {
       clearTimeout(readyTimeout);
-      if (widgetContainerRef.current && widgetContainerRef.current.contains(widget)) {
-        widgetContainerRef.current.removeChild(widget);
+      if (document.body.contains(widget)) {
+        document.body.removeChild(widget);
       }
     };
   }, [interview?.agent_id, interviewStarted, sdkLoaded, session]);
@@ -273,12 +297,12 @@ export default function EmployeeJoin() {
         <h1 className="text-3xl font-bold text-gray-900 mb-4">Interview in Progress</h1>
         <p className="text-lg text-gray-600 mb-8">
           {widgetReady 
-            ? 'Click the microphone button below to start speaking with the AI interviewer!' 
+            ? 'Click the microphone button to start speaking with the AI interviewer!' 
             : 'Setting up your AI interviewer...'}
         </p>
 
-        {/* ElevenLabs widget container */}
-        <div ref={widgetContainerRef} className="mb-8 flex justify-center min-h-[200px] items-center"></div>
+        {/* Hidden container - widget is appended to body */}
+        <div ref={widgetContainerRef} className="hidden"></div>
 
         {!widgetReady && (
           <div className="mb-8">
@@ -303,10 +327,8 @@ export default function EmployeeJoin() {
           )}
         </Button>
 
-        <div className="mt-6 text-xs text-gray-500 space-y-1">
-          <p>SDK Loaded: {sdkLoaded ? '✓' : '...'}</p>
-          <p>Widget Ready: {widgetReady ? '✓' : '...'}</p>
-          <p>Agent: {interview.agent_id}</p>
+        <div className="mt-6 text-xs text-gray-400 space-y-1">
+          <p>SDK: {sdkLoaded ? '✓' : '...'} | Widget: {widgetReady ? '✓' : '...'}</p>
         </div>
       </Card>
     </div>
