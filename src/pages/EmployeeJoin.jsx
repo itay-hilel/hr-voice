@@ -12,7 +12,7 @@ export default function EmployeeJoin() {
   const employeeEmail = urlParams.get('email');
   const sessionId = urlParams.get('session');
 
-  const [agentId, setAgentId] = useState(null);
+  const [conversationId, setConversationId] = useState(null);
   const [interviewStarted, setInterviewStarted] = useState(false);
   const [interviewCompleted, setInterviewCompleted] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState(sessionId);
@@ -40,7 +40,7 @@ export default function EmployeeJoin() {
     staleTime: 300000,
   });
 
-  // Start interview - create session and get agent ID
+  // Start interview - create session
   const startMutation = useMutation({
     mutationFn: async () => {
       // Check authentication
@@ -76,24 +76,20 @@ export default function EmployeeJoin() {
       }
 
       setCurrentSessionId(session.id);
-
-      // Get ElevenLabs agent ID
-      const agentIdFromEnv = 'AGENT_ID'; // This will be replaced by backend
       
       return { 
         session_id: session.id,
-        agent_id: agentIdFromEnv
+        agent_id: interview.agent_id
       };
     },
     onSuccess: (data) => {
-      setAgentId(data.agent_id);
       setInterviewStarted(true);
     }
   });
 
   // Initialize ElevenLabs widget
   useEffect(() => {
-    if (!interviewStarted || !agentId) return;
+    if (!interviewStarted || !interview?.agent_id) return;
 
     // Load widget script
     const script = document.createElement('script');
@@ -104,9 +100,18 @@ export default function EmployeeJoin() {
     script.onload = () => {
       console.log('ElevenLabs widget loaded');
       
-      // Listen for conversation end
+      // Listen for conversation start
       const widget = document.querySelector('elevenlabs-convai');
       if (widget) {
+        widget.addEventListener('elevenlabs-convai:start', (event) => {
+          console.log('Conversation started');
+          const convId = event.detail?.conversationId;
+          if (convId) {
+            setConversationId(convId);
+          }
+        });
+
+        // Listen for conversation end
         widget.addEventListener('elevenlabs-convai:end', handleInterviewEnd);
       }
     };
@@ -118,25 +123,25 @@ export default function EmployeeJoin() {
         script.parentNode.removeChild(script);
       }
     };
-  }, [interviewStarted, agentId]);
+  }, [interviewStarted, interview]);
 
   // Handle interview completion
   const handleInterviewEnd = async () => {
     console.log('Interview ended');
     setInterviewCompleted(true);
 
-    // Update session status - transcript will be fetched separately by admin
+    // Fetch and analyze transcript
     try {
-      if (currentSessionId) {
-        await base44.entities.InterviewSession.update(currentSessionId, {
-          session_status: 'Completed',
-          completed_at: new Date().toISOString()
+      if (conversationId && currentSessionId) {
+        await base44.functions.invoke('getElevenLabsTranscript', {
+          conversationId: conversationId,
+          sessionId: currentSessionId
         });
         
         queryClient.invalidateQueries({ queryKey: ['sessions'] });
       }
     } catch (error) {
-      console.error('Error updating session:', error);
+      console.error('Error fetching transcript:', error);
     }
   };
 
@@ -227,7 +232,7 @@ export default function EmployeeJoin() {
     );
   }
 
-  if (interviewStarted) {
+  if (interviewStarted && interview?.agent_id) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 p-6">
         <div className="max-w-4xl mx-auto">
@@ -245,8 +250,7 @@ export default function EmployeeJoin() {
             {/* Widget embed */}
             <div className="flex justify-center">
               <elevenlabs-convai 
-                agent-id={agentId}
-                variant="expanded"
+                agent-id={interview.agent_id}
               />
             </div>
           </Card>

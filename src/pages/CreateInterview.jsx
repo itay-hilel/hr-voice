@@ -50,12 +50,27 @@ export default function CreateInterview() {
         .map(e => e.trim())
         .filter(e => e.length > 0);
       
-      const interview = await base44.entities.VoiceInterview.create({
-        ...data,
-        target_employees: emailArray
+      // Step 1: Create ElevenLabs agent for this campaign
+      const agentResponse = await base44.functions.invoke('createElevenLabsAgent', {
+        title: data.title,
+        topic: data.topic,
+        ai_tone: data.ai_tone,
+        duration_minutes: data.duration_minutes,
+        welcome_message: data.welcome_message
       });
 
-      // Create pending sessions for each employee
+      if (!agentResponse.data.agent_id) {
+        throw new Error('Failed to create AI agent');
+      }
+
+      // Step 2: Create interview with agent_id
+      const interview = await base44.entities.VoiceInterview.create({
+        ...data,
+        target_employees: emailArray,
+        agent_id: agentResponse.data.agent_id
+      });
+
+      // Step 3: Create pending sessions for each employee
       for (const email of emailArray) {
         await base44.entities.InterviewSession.create({
           interview_id: interview.id,
@@ -233,6 +248,9 @@ export default function CreateInterview() {
                 placeholder="Add a personal welcome message for participants..."
                 className="mt-2 min-h-[80px]"
               />
+              <p className="text-sm text-gray-500 mt-2">
+                This will be used by the AI to greet employees at the start of the interview
+              </p>
             </div>
           </Card>
 
@@ -253,7 +271,9 @@ export default function CreateInterview() {
               disabled={createMutation.isPending}
               className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
             >
-              {createMutation.isPending ? 'Creating...' : (
+              {createMutation.isPending ? (
+                <>Creating AI Agent...</>
+              ) : (
                 <>
                   <Send className="w-4 h-4 mr-2" />
                   Launch Campaign
@@ -261,6 +281,14 @@ export default function CreateInterview() {
               )}
             </Button>
           </div>
+
+          {createMutation.isError && (
+            <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-700 text-sm">
+                {createMutation.error?.message || 'Failed to create campaign'}
+              </p>
+            </div>
+          )}
         </form>
       </div>
     </div>
