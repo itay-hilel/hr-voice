@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Mic, CheckCircle, Loader2, AlertCircle } from 'lucide-react';
+import { Mic, CheckCircle, Loader2, AlertCircle, Phone, MessageSquare } from 'lucide-react';
+import { cn } from "@/lib/utils";
 
 export default function EmployeeJoin() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -16,6 +17,8 @@ export default function EmployeeJoin() {
   const [widgetLoaded, setWidgetLoaded] = useState(false);
   const [signedUrl, setSignedUrl] = useState(null);
   const [error, setError] = useState(null);
+  const [callStatus, setCallStatus] = useState('idle'); // idle, starting, active, ending
+  const widgetRef = useRef(null);
 
   // Fetch interview and session data via backend function
   const { data, isLoading: loadingData, error: dataError } = useQuery({
@@ -57,19 +60,18 @@ export default function EmployeeJoin() {
 
   // Load ElevenLabs widget script
   useEffect(() => {
-    if (!signedUrl) return;
-
-    const existingScript = document.querySelector('script[src*="elevenlabs.io/convai-widget"]');
+    const existingScript = document.querySelector('script[src*="convai-widget-embed"]');
     if (existingScript) {
       setWidgetLoaded(true);
       return;
     }
 
     const script = document.createElement('script');
-    script.src = 'https://elevenlabs.io/convai-widget/index.js';
+    script.src = 'https://unpkg.com/@elevenlabs/convai-widget-embed';
     script.async = true;
+    script.type = 'text/javascript';
     script.onload = () => {
-      console.log('ElevenLabs widget loaded');
+      console.log('ElevenLabs widget script loaded');
       setWidgetLoaded(true);
     };
     script.onerror = () => {
@@ -84,7 +86,7 @@ export default function EmployeeJoin() {
         document.body.removeChild(script);
       }
     };
-  }, [signedUrl]);
+  }, []);
 
   // Update session mutation
   const updateSessionMutation = useMutation({
@@ -111,65 +113,74 @@ export default function EmployeeJoin() {
     }
   });
 
+  // Initialize widget when ready
+  useEffect(() => {
+    if (!widgetLoaded || !signedUrl || !interviewStarted || widgetRef.current) return;
+
+    // Create widget element
+    const widget = document.createElement('elevenlabs-convai');
+    widget.setAttribute('signed-url', signedUrl);
+    widget.setAttribute('avatar-orb-color-1', '#9333ea'); // Purple
+    widget.setAttribute('avatar-orb-color-2', '#ec4899'); // Pink
+    widget.setAttribute('start-call-text', 'Start Interview');
+    widget.setAttribute('end-call-text', 'End Interview');
+    widget.setAttribute('listening-text', 'Listening to you...');
+    widget.setAttribute('speaking-text', 'AI is speaking...');
+    
+    // Add event listeners
+    widget.addEventListener('elevenlabs-convai:call:started', (e) => {
+      console.log('Call started:', e.detail);
+      setCallStatus('active');
+      const convId = e.detail?.conversationId;
+      if (convId) setConversationId(convId);
+      
+      // Update session to In Progress
+      if (session?.session_status === 'Pending') {
+        updateSessionMutation.mutate({
+          session_status: 'In Progress',
+          started_at: new Date().toISOString()
+        });
+      }
+    });
+
+    widget.addEventListener('elevenlabs-convai:call:ended', async (e) => {
+      console.log('Call ended:', e.detail);
+      setCallStatus('ending');
+      const convId = e.detail?.conversationId || conversationId;
+      
+      if (convId) {
+        await analyzeTranscriptMutation.mutateAsync({ conversationId: convId });
+      } else {
+        setInterviewCompleted(true);
+      }
+    });
+
+    widget.addEventListener('elevenlabs-convai:loaded', () => {
+      console.log('Widget loaded');
+    });
+
+    // Add widget to container
+    const container = document.getElementById('widget-container');
+    if (container) {
+      container.appendChild(widget);
+      widgetRef.current = widget;
+    }
+
+    return () => {
+      if (widgetRef.current && widgetRef.current.parentNode) {
+        widgetRef.current.parentNode.removeChild(widgetRef.current);
+      }
+      widgetRef.current = null;
+    };
+  }, [widgetLoaded, signedUrl, interviewStarted]);
+
   const handleStartInterview = () => {
     if (!widgetLoaded || !signedUrl) {
       setError('Voice system not ready. Please wait or refresh the page.');
       return;
     }
-
+    setCallStatus('starting');
     setInterviewStarted(true);
-
-    // Update session to In Progress
-    if (session?.session_status === 'Pending') {
-      updateSessionMutation.mutate({
-        session_status: 'In Progress',
-        started_at: new Date().toISOString()
-      });
-    }
-
-    // Initialize widget after a short delay
-    setTimeout(() => {
-      const widget = document.createElement('elevenlabs-convai');
-      widget.setAttribute('agent-id', interview.agent_id);
-      widget.setAttribute('signed-url', signedUrl);
-
-      // Listen for widget events
-      widget.addEventListener('loaded', () => {
-        console.log('Widget initialized');
-      });
-
-      widget.addEventListener('call:started', (e) => {
-        console.log('Call started:', e.detail);
-        const convId = e.detail?.conversationId;
-        if (convId) setConversationId(convId);
-      });
-
-      widget.addEventListener('call:ended', async (e) => {
-        console.log('Call ended:', e.detail);
-        const convId = e.detail?.conversationId || conversationId;
-        
-        if (convId) {
-          await analyzeTranscriptMutation.mutateAsync({ conversationId: convId });
-        } else {
-          setInterviewCompleted(true);
-        }
-      });
-
-      // Style the widget to center it
-      const style = document.createElement('style');
-      style.textContent = `
-        elevenlabs-convai {
-          position: fixed !important;
-          top: 50% !important;
-          left: 50% !important;
-          transform: translate(-50%, -50%) !important;
-          z-index: 9999 !important;
-        }
-      `;
-      document.head.appendChild(style);
-
-      document.body.appendChild(widget);
-    }, 500);
   };
 
   if (loadingData) {
@@ -215,41 +226,41 @@ export default function EmployeeJoin() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 flex items-center justify-center p-6">
-      <Card className="p-12 text-center max-w-2xl">
-        <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <Mic className="w-12 h-12 text-purple-600" />
-        </div>
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">{interview.title}</h1>
-        <p className="text-xl text-gray-600 mb-2">Voice Interview: {interview.topic}</p>
-        <p className="text-gray-500 mb-8">
-          Duration: ~{interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}
-        </p>
-
-        {interview.welcome_message && (
-          <div className="bg-purple-50 rounded-xl p-6 mb-8 text-left">
-            <p className="text-gray-700 leading-relaxed">{interview.welcome_message}</p>
+  if (!interviewStarted) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 flex items-center justify-center p-6">
+        <Card className="p-12 text-center max-w-2xl">
+          <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Mic className="w-12 h-12 text-purple-600" />
           </div>
-        )}
+          <h1 className="text-4xl font-bold text-gray-900 mb-4">{interview.title}</h1>
+          <p className="text-xl text-gray-600 mb-2">Voice Interview: {interview.topic}</p>
+          <p className="text-gray-500 mb-8">
+            Duration: ~{interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}
+          </p>
 
-        <div className="bg-blue-50 rounded-xl p-6 mb-8 text-left">
-          <h3 className="font-semibold text-gray-900 mb-3">What to expect:</h3>
-          <ul className="space-y-2 text-gray-600">
-            <li>✓ A friendly AI interviewer will ask you questions</li>
-            <li>✓ Speak naturally and honestly - there are no wrong answers</li>
-            <li>✓ The conversation will last about {interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}</li>
-            <li>✓ Your responses {interview.is_anonymous ? 'are anonymous' : 'will be recorded'}</li>
-          </ul>
-        </div>
+          {interview.welcome_message && (
+            <div className="bg-purple-50 rounded-xl p-6 mb-8 text-left">
+              <p className="text-gray-700 leading-relaxed">{interview.welcome_message}</p>
+            </div>
+          )}
 
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 rounded-lg border border-red-200">
-            <p className="text-red-700 text-sm">{error}</p>
+          <div className="bg-blue-50 rounded-xl p-6 mb-8 text-left">
+            <h3 className="font-semibold text-gray-900 mb-3">What to expect:</h3>
+            <ul className="space-y-2 text-gray-600">
+              <li>✓ A friendly AI interviewer will ask you questions</li>
+              <li>✓ Speak naturally and honestly - there are no wrong answers</li>
+              <li>✓ The conversation will last about {interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}</li>
+              <li>✓ Your responses {interview.is_anonymous ? 'are anonymous' : 'will be recorded'}</li>
+            </ul>
           </div>
-        )}
 
-        {!interviewStarted && (
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 rounded-lg border border-red-200">
+              <p className="text-red-700 text-sm">{error}</p>
+            </div>
+          )}
+
           <Button 
             size="lg" 
             onClick={handleStartInterview}
@@ -268,15 +279,138 @@ export default function EmployeeJoin() {
               </>
             )}
           </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 flex items-center justify-center p-6 relative">
+      {/* Background decorative elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-20 left-20 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-20 right-20 w-96 h-96 bg-pink-500/10 rounded-full blur-3xl" />
+      </div>
+
+      {/* Main content */}
+      <div className="relative z-10 w-full max-w-4xl">
+        {/* Header Card */}
+        <Card className="p-8 text-center mb-6 bg-white/95 backdrop-blur">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">{interview.title}</h1>
+          <p className="text-lg text-gray-600">
+            {interview.topic} • ~{interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}
+          </p>
+        </Card>
+
+        {/* Widget Container with UI */}
+        <div className="grid md:grid-cols-2 gap-6">
+          {/* Left side - Instructions */}
+          <Card className="p-8 bg-white/95 backdrop-blur flex flex-col justify-center">
+            <div className="space-y-6">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+                  <Phone className="w-6 h-6 text-purple-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-1">Voice Interview</h3>
+                  <p className="text-sm text-gray-600">
+                    Speak naturally with our AI interviewer. It's like having a conversation with a colleague.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0">
+                  <MessageSquare className="w-6 h-6 text-pink-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-1">Be Honest</h3>
+                  <p className="text-sm text-gray-600">
+                    Share your genuine thoughts and feelings. There are no wrong answers.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                  <CheckCircle className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-1">
+                    {interview.is_anonymous ? 'Anonymous' : 'Confidential'}
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    {interview.is_anonymous 
+                      ? 'Your responses are completely anonymous.'
+                      : 'Your responses are treated confidentially.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Status indicator */}
+              <div className={cn(
+                "p-4 rounded-lg border-2 transition-all",
+                callStatus === 'active' 
+                  ? "bg-green-50 border-green-300"
+                  : callStatus === 'starting'
+                  ? "bg-blue-50 border-blue-300"
+                  : "bg-gray-50 border-gray-200"
+              )}>
+                <p className="text-sm font-medium text-gray-900">
+                  {callStatus === 'idle' && '⏸️ Ready to begin'}
+                  {callStatus === 'starting' && '🎙️ Initializing...'}
+                  {callStatus === 'active' && '✅ Interview in progress'}
+                  {callStatus === 'ending' && '⏳ Processing...'}
+                </p>
+              </div>
+            </div>
+          </Card>
+
+          {/* Right side - Widget */}
+          <Card className="p-8 bg-white/95 backdrop-blur flex items-center justify-center min-h-[500px] relative">
+            <div 
+              id="widget-container" 
+              className="w-full h-full flex items-center justify-center"
+            />
+            
+            {callStatus === 'starting' && !widgetRef.current && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center">
+                  <Loader2 className="w-12 h-12 text-purple-600 animate-spin mx-auto mb-3" />
+                  <p className="text-gray-600">Loading voice interface...</p>
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* Processing indicator */}
+        {analyzeTranscriptMutation.isPending && (
+          <Card className="mt-6 p-6 bg-white/95 backdrop-blur">
+            <div className="flex items-center justify-center gap-3 text-purple-600">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span className="font-medium">Processing your responses...</span>
+            </div>
+          </Card>
         )}
 
-        {analyzeTranscriptMutation.isPending && (
-          <div className="mt-6 flex items-center justify-center gap-2 text-purple-600">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            <span>Processing your responses...</span>
-          </div>
+        {error && (
+          <Card className="mt-6 p-4 bg-red-50 border-red-200">
+            <p className="text-red-700 text-sm text-center">{error}</p>
+          </Card>
         )}
-      </Card>
+      </div>
+
+      {/* Custom widget styling */}
+      <style>{`
+        elevenlabs-convai {
+          width: 100% !important;
+          height: 100% !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+        }
+      `}</style>
     </div>
   );
 }
