@@ -14,6 +14,7 @@ export default function EmployeeJoin() {
   const [interviewStarted, setInterviewStarted] = useState(false);
   const [interviewCompleted, setInterviewCompleted] = useState(false);
   const [widgetReady, setWidgetReady] = useState(false);
+  const [sdkLoaded, setSdkLoaded] = useState(false);
   const widgetContainerRef = useRef(null);
 
   // Fetch interview and session data via backend function
@@ -57,17 +58,55 @@ export default function EmployeeJoin() {
     }
   });
 
-  // Initialize ElevenLabs widget when interview starts
+  // Load ElevenLabs SDK script
   useEffect(() => {
-    if (!interview?.agent_id || !interviewStarted || !widgetContainerRef.current) return;
+    // Check if script already exists
+    if (document.querySelector('script[src*="elevenlabs.io/convai-widget"]')) {
+      setSdkLoaded(true);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://elevenlabs.io/convai-widget/index.js';
+    script.async = true;
+    script.onload = () => {
+      console.log('ElevenLabs SDK loaded');
+      setSdkLoaded(true);
+    };
+    script.onerror = () => {
+      console.error('Failed to load ElevenLabs SDK');
+    };
+    
+    document.body.appendChild(script);
+
+    return () => {
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
+    };
+  }, []);
+
+  // Initialize ElevenLabs widget when interview starts and SDK is loaded
+  useEffect(() => {
+    if (!interview?.agent_id || !interviewStarted || !widgetContainerRef.current || !sdkLoaded) {
+      return;
+    }
 
     console.log('Initializing ElevenLabs widget with agent:', interview.agent_id);
+
+    // Clear any existing widgets
+    widgetContainerRef.current.innerHTML = '';
 
     // Create widget element
     const widget = document.createElement('elevenlabs-convai');
     widget.setAttribute('agent-id', interview.agent_id);
     
     // Add event listeners
+    widget.addEventListener('load', () => {
+      console.log('ElevenLabs: Widget loaded');
+      setWidgetReady(true);
+    });
+
     widget.addEventListener('connected', () => {
       console.log('ElevenLabs: Connected');
       setWidgetReady(true);
@@ -97,16 +136,26 @@ export default function EmployeeJoin() {
       console.log('ElevenLabs: Conversation ended', e.detail);
     });
 
+    widget.addEventListener('error', (e) => {
+      console.error('ElevenLabs: Error', e.detail);
+    });
+
     // Append widget to container
     widgetContainerRef.current.appendChild(widget);
 
+    // Auto-set ready after 2 seconds if no load event
+    const readyTimeout = setTimeout(() => {
+      setWidgetReady(true);
+    }, 2000);
+
     // Cleanup
     return () => {
+      clearTimeout(readyTimeout);
       if (widgetContainerRef.current && widgetContainerRef.current.contains(widget)) {
         widgetContainerRef.current.removeChild(widget);
       }
     };
-  }, [interview?.agent_id, interviewStarted, session]);
+  }, [interview?.agent_id, interviewStarted, sdkLoaded, session]);
 
   const handleStartInterview = () => {
     setInterviewStarted(true);
@@ -195,10 +244,20 @@ export default function EmployeeJoin() {
           <Button 
             size="lg" 
             onClick={handleStartInterview}
+            disabled={!sdkLoaded}
             className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-8 py-6 text-lg"
           >
-            <Mic className="w-5 h-5 mr-3" />
-            Start Interview
+            {!sdkLoaded ? (
+              <>
+                <Loader2 className="w-5 h-5 mr-3 animate-spin" />
+                Loading...
+              </>
+            ) : (
+              <>
+                <Mic className="w-5 h-5 mr-3" />
+                Start Interview
+              </>
+            )}
           </Button>
         </Card>
       </div>
@@ -208,20 +267,23 @@ export default function EmployeeJoin() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 flex items-center justify-center p-6">
       <Card className="p-12 text-center max-w-2xl">
-        <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
-          <Mic className="w-12 h-12 text-purple-600" />
+        <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Mic className={`w-12 h-12 text-purple-600 ${widgetReady ? 'animate-pulse' : ''}`} />
         </div>
         <h1 className="text-3xl font-bold text-gray-900 mb-4">Interview in Progress</h1>
         <p className="text-lg text-gray-600 mb-8">
-          {widgetReady ? 'The AI interviewer is ready. Start speaking!' : 'Loading AI interviewer...'}
+          {widgetReady 
+            ? 'Click the microphone button below to start speaking with the AI interviewer!' 
+            : 'Setting up your AI interviewer...'}
         </p>
 
         {/* ElevenLabs widget container */}
-        <div ref={widgetContainerRef} className="mb-8 flex justify-center"></div>
+        <div ref={widgetContainerRef} className="mb-8 flex justify-center min-h-[200px] items-center"></div>
 
         {!widgetReady && (
           <div className="mb-8">
             <Loader2 className="w-8 h-8 mx-auto text-purple-600 animate-spin" />
+            <p className="text-sm text-gray-500 mt-2">Loading conversational AI...</p>
           </div>
         )}
 
@@ -241,11 +303,11 @@ export default function EmployeeJoin() {
           )}
         </Button>
 
-        {!widgetReady && (
-          <p className="text-xs text-gray-500 mt-4">
-            Agent ID: {interview.agent_id}
-          </p>
-        )}
+        <div className="mt-6 text-xs text-gray-500 space-y-1">
+          <p>SDK Loaded: {sdkLoaded ? '✓' : '...'}</p>
+          <p>Widget Ready: {widgetReady ? '✓' : '...'}</p>
+          <p>Agent: {interview.agent_id}</p>
+        </div>
       </Card>
     </div>
   );
