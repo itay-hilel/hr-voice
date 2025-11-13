@@ -4,7 +4,6 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Mic, CheckCircle, Loader2, AlertCircle } from 'lucide-react';
-import VoiceInterface from '../components/hrvoice/VoiceInterface';
 
 export default function EmployeeJoin() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -14,7 +13,8 @@ export default function EmployeeJoin() {
   const [conversationId, setConversationId] = useState(null);
   const [interviewStarted, setInterviewStarted] = useState(false);
   const [interviewCompleted, setInterviewCompleted] = useState(false);
-  const [sdkLoaded, setSdkLoaded] = useState(false);
+  const [widgetLoaded, setWidgetLoaded] = useState(false);
+  const [signedUrl, setSignedUrl] = useState(null);
   const [error, setError] = useState(null);
 
   // Fetch interview and session data via backend function
@@ -33,29 +33,58 @@ export default function EmployeeJoin() {
   const interview = data?.interview;
   const session = data?.session;
 
-  // Load ElevenLabs SDK
+  // Get signed URL for the widget
   useEffect(() => {
-    const loadSDK = async () => {
-      try {
-        // Check if already loaded
-        if (window.Conversation) {
-          setSdkLoaded(true);
-          return;
-        }
+    const getSignedUrl = async () => {
+      if (!interview?.agent_id) return;
 
-        // Load from esm.sh CDN
-        const { Conversation } = await import('https://esm.sh/@elevenlabs/client@1.0.0');
-        window.Conversation = Conversation;
-        console.log('ElevenLabs SDK loaded successfully');
-        setSdkLoaded(true);
+      try {
+        const response = await base44.functions.invoke('getSignedUrl', {
+          agentId: interview.agent_id
+        });
+        
+        if (response.data.signed_url) {
+          setSignedUrl(response.data.signed_url);
+        }
       } catch (err) {
-        console.error('Failed to load ElevenLabs SDK:', err);
-        setError('Failed to load voice system. Please refresh the page.');
+        console.error('Error getting signed URL:', err);
+        setError('Failed to initialize voice system');
       }
     };
 
-    loadSDK();
-  }, []);
+    getSignedUrl();
+  }, [interview?.agent_id]);
+
+  // Load ElevenLabs widget script
+  useEffect(() => {
+    if (!signedUrl) return;
+
+    const existingScript = document.querySelector('script[src*="elevenlabs.io/convai-widget"]');
+    if (existingScript) {
+      setWidgetLoaded(true);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://elevenlabs.io/convai-widget/index.js';
+    script.async = true;
+    script.onload = () => {
+      console.log('ElevenLabs widget loaded');
+      setWidgetLoaded(true);
+    };
+    script.onerror = () => {
+      console.error('Failed to load ElevenLabs widget');
+      setError('Failed to load voice system');
+    };
+
+    document.body.appendChild(script);
+
+    return () => {
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
+    };
+  }, [signedUrl]);
 
   // Update session mutation
   const updateSessionMutation = useMutation({
@@ -82,10 +111,14 @@ export default function EmployeeJoin() {
     }
   });
 
-  const handleConversationStart = (convId) => {
-    console.log('Conversation started:', convId);
-    setConversationId(convId);
-    
+  const handleStartInterview = () => {
+    if (!widgetLoaded || !signedUrl) {
+      setError('Voice system not ready. Please wait or refresh the page.');
+      return;
+    }
+
+    setInterviewStarted(true);
+
     // Update session to In Progress
     if (session?.session_status === 'Pending') {
       updateSessionMutation.mutate({
@@ -93,24 +126,50 @@ export default function EmployeeJoin() {
         started_at: new Date().toISOString()
       });
     }
-  };
 
-  const handleConversationEnd = async () => {
-    console.log('Conversation ended');
-    
-    if (conversationId) {
-      await analyzeTranscriptMutation.mutateAsync({ conversationId });
-    } else {
-      setInterviewCompleted(true);
-    }
-  };
+    // Initialize widget after a short delay
+    setTimeout(() => {
+      const widget = document.createElement('elevenlabs-convai');
+      widget.setAttribute('agent-id', interview.agent_id);
+      widget.setAttribute('signed-url', signedUrl);
 
-  const handleError = (errorMsg) => {
-    setError(errorMsg);
-  };
+      // Listen for widget events
+      widget.addEventListener('loaded', () => {
+        console.log('Widget initialized');
+      });
 
-  const handleStartInterview = () => {
-    setInterviewStarted(true);
+      widget.addEventListener('call:started', (e) => {
+        console.log('Call started:', e.detail);
+        const convId = e.detail?.conversationId;
+        if (convId) setConversationId(convId);
+      });
+
+      widget.addEventListener('call:ended', async (e) => {
+        console.log('Call ended:', e.detail);
+        const convId = e.detail?.conversationId || conversationId;
+        
+        if (convId) {
+          await analyzeTranscriptMutation.mutateAsync({ conversationId: convId });
+        } else {
+          setInterviewCompleted(true);
+        }
+      });
+
+      // Style the widget to center it
+      const style = document.createElement('style');
+      style.textContent = `
+        elevenlabs-convai {
+          position: fixed !important;
+          top: 50% !important;
+          left: 50% !important;
+          transform: translate(-50%, -50%) !important;
+          z-index: 9999 !important;
+        }
+      `;
+      document.head.appendChild(style);
+
+      document.body.appendChild(widget);
+    }, 500);
   };
 
   if (loadingData) {
@@ -156,48 +215,48 @@ export default function EmployeeJoin() {
     );
   }
 
-  if (!interviewStarted) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 flex items-center justify-center p-6">
-        <Card className="p-12 text-center max-w-2xl">
-          <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Mic className="w-12 h-12 text-purple-600" />
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 flex items-center justify-center p-6">
+      <Card className="p-12 text-center max-w-2xl">
+        <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Mic className="w-12 h-12 text-purple-600" />
+        </div>
+        <h1 className="text-4xl font-bold text-gray-900 mb-4">{interview.title}</h1>
+        <p className="text-xl text-gray-600 mb-2">Voice Interview: {interview.topic}</p>
+        <p className="text-gray-500 mb-8">
+          Duration: ~{interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}
+        </p>
+
+        {interview.welcome_message && (
+          <div className="bg-purple-50 rounded-xl p-6 mb-8 text-left">
+            <p className="text-gray-700 leading-relaxed">{interview.welcome_message}</p>
           </div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">{interview.title}</h1>
-          <p className="text-xl text-gray-600 mb-2">Voice Interview: {interview.topic}</p>
-          <p className="text-gray-500 mb-8">
-            Duration: ~{interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}
-          </p>
+        )}
 
-          {interview.welcome_message && (
-            <div className="bg-purple-50 rounded-xl p-6 mb-8 text-left">
-              <p className="text-gray-700 leading-relaxed">{interview.welcome_message}</p>
-            </div>
-          )}
+        <div className="bg-blue-50 rounded-xl p-6 mb-8 text-left">
+          <h3 className="font-semibold text-gray-900 mb-3">What to expect:</h3>
+          <ul className="space-y-2 text-gray-600">
+            <li>✓ A friendly AI interviewer will ask you questions</li>
+            <li>✓ Speak naturally and honestly - there are no wrong answers</li>
+            <li>✓ The conversation will last about {interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}</li>
+            <li>✓ Your responses {interview.is_anonymous ? 'are anonymous' : 'will be recorded'}</li>
+          </ul>
+        </div>
 
-          <div className="bg-blue-50 rounded-xl p-6 mb-8 text-left">
-            <h3 className="font-semibold text-gray-900 mb-3">What to expect:</h3>
-            <ul className="space-y-2 text-gray-600">
-              <li>✓ A friendly AI interviewer will ask you questions</li>
-              <li>✓ Speak naturally and honestly - there are no wrong answers</li>
-              <li>✓ The conversation will last about {interview.duration_minutes} minute{interview.duration_minutes > 1 ? 's' : ''}</li>
-              <li>✓ Your responses {interview.is_anonymous ? 'are anonymous' : 'will be recorded'}</li>
-            </ul>
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 rounded-lg border border-red-200">
+            <p className="text-red-700 text-sm">{error}</p>
           </div>
+        )}
 
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 rounded-lg border border-red-200">
-              <p className="text-red-700 text-sm">{error}</p>
-            </div>
-          )}
-
+        {!interviewStarted && (
           <Button 
             size="lg" 
             onClick={handleStartInterview}
-            disabled={!sdkLoaded}
+            disabled={!widgetLoaded || !signedUrl}
             className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-8 py-6 text-lg"
           >
-            {!sdkLoaded ? (
+            {!widgetLoaded || !signedUrl ? (
               <>
                 <Loader2 className="w-5 h-5 mr-3 animate-spin" />
                 Loading Voice System...
@@ -209,30 +268,6 @@ export default function EmployeeJoin() {
               </>
             )}
           </Button>
-        </Card>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 flex items-center justify-center p-6">
-      <Card className="p-12 text-center max-w-2xl w-full">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Interview in Progress</h1>
-        <p className="text-lg text-gray-600 mb-12">
-          Speak naturally with the AI interviewer
-        </p>
-
-        <VoiceInterface
-          agentId={interview.agent_id}
-          onConversationStart={handleConversationStart}
-          onConversationEnd={handleConversationEnd}
-          onError={handleError}
-        />
-
-        {error && (
-          <div className="mt-6 p-4 bg-red-50 rounded-lg border border-red-200">
-            <p className="text-red-700 text-sm">{error}</p>
-          </div>
         )}
 
         {analyzeTranscriptMutation.isPending && (
