@@ -16,21 +16,25 @@ export default function EmployeeJoin() {
   const [interviewCompleted, setInterviewCompleted] = useState(false);
 
   // Fetch interview details
-  const { data: interview, isLoading: loadingInterview } = useQuery({
+  const { data: interview, isLoading: loadingInterview, error: interviewError } = useQuery({
     queryKey: ['interview', interviewId],
     queryFn: async () => {
-      const interviews = await base44.asServiceRole.entities.VoiceInterview.filter({ id: interviewId });
-      return interviews[0];
+      const interviews = await base44.asServiceRole.entities.VoiceInterview.list();
+      const found = interviews.find(i => i.id === interviewId);
+      console.log('Found interview:', found);
+      return found;
     },
     enabled: !!interviewId
   });
 
   // Fetch session details
-  const { data: session, isLoading: loadingSession } = useQuery({
+  const { data: session, isLoading: loadingSession, error: sessionError } = useQuery({
     queryKey: ['session', sessionId],
     queryFn: async () => {
-      const sessions = await base44.asServiceRole.entities.InterviewSession.filter({ id: sessionId });
-      return sessions[0];
+      const sessions = await base44.asServiceRole.entities.InterviewSession.list();
+      const found = sessions.find(s => s.id === sessionId);
+      console.log('Found session:', found);
+      return found;
     },
     enabled: !!sessionId
   });
@@ -45,7 +49,7 @@ export default function EmployeeJoin() {
   // Analyze transcript mutation
   const analyzeTranscriptMutation = useMutation({
     mutationFn: async ({ conversationId }) => {
-      const response = await base44.functions.invoke('getElevenLabsTranscript', {
+      const response = await base44.asServiceRole.functions.invoke('getElevenLabsTranscript', {
         conversationId,
         sessionId
       });
@@ -66,13 +70,15 @@ export default function EmployeeJoin() {
     document.body.appendChild(script);
 
     return () => {
-      document.body.removeChild(script);
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
     };
   }, [interview?.agent_id]);
 
   // Initialize ElevenLabs widget
   useEffect(() => {
-    if (!interview?.agent_id || !window.ElevenLabs || interviewStarted) return;
+    if (!interview?.agent_id || !window.ElevenLabs || !interviewStarted) return;
 
     // Wait for the widget to be ready
     const timer = setTimeout(() => {
@@ -111,7 +117,7 @@ export default function EmployeeJoin() {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [interview?.agent_id, window.ElevenLabs, interviewStarted]);
+  }, [interview?.agent_id, window.ElevenLabs, interviewStarted, session]);
 
   const handleStartInterview = () => {
     setInterviewStarted(true);
@@ -137,12 +143,25 @@ export default function EmployeeJoin() {
     );
   }
 
+  // Debug info
+  console.log('Interview ID:', interviewId, 'Interview:', interview, 'Error:', interviewError);
+  console.log('Session ID:', sessionId, 'Session:', session, 'Error:', sessionError);
+
   if (!interview || !session) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-800 flex items-center justify-center p-6">
         <Card className="p-8 text-center max-w-md">
           <h2 className="text-2xl font-bold text-red-600 mb-2">Invalid Link</h2>
-          <p className="text-gray-600">This interview link is not valid or has expired.</p>
+          <p className="text-gray-600 mb-4">This interview link is not valid or has expired.</p>
+          {(interviewError || sessionError) && (
+            <div className="mt-4 p-3 bg-red-50 rounded text-left">
+              <p className="text-xs text-red-600">Debug info:</p>
+              <p className="text-xs text-gray-600">Interview ID: {interviewId}</p>
+              <p className="text-xs text-gray-600">Session ID: {sessionId}</p>
+              {interviewError && <p className="text-xs text-red-600">Interview Error: {interviewError.message}</p>}
+              {sessionError && <p className="text-xs text-red-600">Session Error: {sessionError.message}</p>}
+            </div>
+          )}
         </Card>
       </div>
     );
