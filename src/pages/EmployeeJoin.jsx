@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -151,13 +152,9 @@ export default function EmployeeJoin() {
 
     widget.addEventListener('elevenlabs-convai:call:ended', async (e) => {
       console.log('Voice call ended:', e.detail);
-      setCallStatus('ending');
       const convId = e.detail?.conversationId || conversationId;
-      
       if (convId) {
-        await analyzeTranscriptMutation.mutateAsync({ conversationId: convId });
-      } else {
-        setInterviewCompleted(true);
+        setConversationId(convId);
       }
     });
 
@@ -187,6 +184,23 @@ export default function EmployeeJoin() {
     }
     setCallStatus('starting');
     setInterviewStarted(true);
+  };
+
+  const handleEndInterview = async () => {
+    if (!conversationId) {
+      setError('No conversation to end');
+      return;
+    }
+
+    setCallStatus('ending');
+    
+    try {
+      await analyzeTranscriptMutation.mutateAsync({ conversationId });
+    } catch (error) {
+      console.error('Error analyzing transcript:', error);
+      setError('Failed to process interview. Please try again.');
+      setCallStatus('active');
+    }
   };
 
   if (loadingData) {
@@ -377,6 +391,28 @@ export default function EmployeeJoin() {
                   {callStatus === 'ending' && '⏳ Processing your voice responses...'}
                 </p>
               </div>
+
+              {/* End Interview Button - shown when call is active */}
+              {callStatus === 'active' && (
+                <Button
+                  onClick={handleEndInterview}
+                  disabled={analyzeTranscriptMutation.isPending}
+                  size="lg"
+                  className="w-full bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {analyzeTranscriptMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <Phone className="w-5 h-5 mr-2 rotate-[135deg]" />
+                      End Interview
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </Card>
 
